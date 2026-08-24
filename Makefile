@@ -50,15 +50,38 @@ verify-toolchain:
 # (/app), unlike $$HOME.
 .PHONY: verify-trimpath
 verify-trimpath: build
-	@n=`LC_ALL=C grep -ac "$(CURDIR)" $(BUILD_DIR)/mcp-proxy || true`; \
+	@if [ ! -r "$(BUILD_DIR)/mcp-proxy" ]; then \
+		echo "$(BUILD_DIR)/mcp-proxy is missing or unreadable, nothing to check"; exit 1; \
+	fi; \
+	n=`LC_ALL=C grep -acF "$(CURDIR)" $(BUILD_DIR)/mcp-proxy || true`; \
 	if [ "$$n" != "0" ]; then \
 		echo "binary embeds the build directory $(CURDIR) ($$n matches): -trimpath is not in effect"; \
 		exit 1; \
 	fi; \
 	echo "no build-directory paths in the binary"
 
+# The gates above only ever look at what make builds. goreleaser builds the
+# artifacts people actually download, from its own flag list, so deleting
+# -trimpath there would ship every release binary full of runner paths while
+# every gate here stayed green. This checks the two lists have not drifted
+# apart. It compares flags rather than bytes: the two paths are deliberately
+# not byte-identical (goreleaser adds -s -w).
+.PHONY: verify-release-flags
+verify-release-flags:
+	@missing=""; \
+	for flag in -trimpath -buildvcs=false CGO_ENABLED=0; do \
+		grep -qE "^[[:space:]]*-[[:space:]]+$$flag[[:space:]]*$$" .goreleaser.yaml \
+			|| missing="$$missing $$flag"; \
+	done; \
+	if [ -n "$$missing" ]; then \
+		echo ".goreleaser.yaml is missing:$$missing"; \
+		echo "release binaries would not match what the Makefile gates guarantee"; \
+		exit 1; \
+	fi; \
+	echo "release flags match the build flags"
+
 .PHONY: verify
-verify: verify-toolchain verify-trimpath verify-reproducible
+verify: verify-toolchain verify-trimpath verify-release-flags verify-reproducible
 
 .PHONY: verify-reproducible
 verify-reproducible: verify-toolchain
@@ -80,12 +103,14 @@ verify-reproducible: verify-toolchain
 	echo "build is reproducible ($(BUILD), $(GO_VERSION_ACTUAL)):"; echo "$$a"
 
 .PHONY: buildLinuxX86
-buildLinuxX86:
+buildLinuxX86: verify-toolchain
 	GOOS=linux GOARCH=amd64 $(GO_BUILD) -o $(BUILD_DIR)/ ./...
 
-.PHONY: buildImage
-buildImage:
-	docker buildx build --platform=linux/amd64,linux/arm64 --build-arg BUILD_VERSION=$(BUILD) -t ghcr.io/tbxark/map-proxy:latest . --push --provenance=false
+# The upstream buildImage target is gone. It published to a namespace this fork
+# cannot write to, so it could only ever fail or, worse, succeed against someone
+# else's registry. Image builds go through scripts/build-push.sh, which takes
+# the registry from the environment, refuses to publish a dirty tree, and hands
+# the version stamp to the build instead of letting Docker derive it.
 
 .PHONY: format
 format:
