@@ -1,12 +1,17 @@
 BUILD_DIR=./build
 # One commit must always produce one binary, so the stamp is derived from the
-# revision instead of the wall clock. --dirty is deliberately absent: the Docker
-# build copies a tree from which .dockerignore has removed tracked files (docs,
-# .github, README.md, .gitattributes), so git inside the builder sees them as
-# deleted and would mark every clean-tree image build dirty. The fallback still
-# matters for any context that has no usable .git at all, where an empty stamp
-# would compile in an empty -X main.BuildVersion.
-BUILD=$(shell git describe --tags --always 2>/dev/null || echo dev)
+# revision instead of the wall clock. --dirty stays: with -buildvcs=false there
+# is no vcs.modified either, so a binary built from a modified tree would carry
+# no trace of it at all and would claim to be the clean commit - incident triage
+# would then audit the wrong source with nothing in the artifact to contradict
+# it. The Docker build must not compute this itself: .dockerignore removes
+# tracked files (docs, .github, README.md, .gitattributes, config.json,
+# docker-compose.yaml) from the context, so git inside the builder sees them as
+# deleted and would mark every clean-tree image dirty. It receives the stamp
+# from the host instead, see buildImage. The fallback matters for a context with
+# no usable .git at all, where an empty stamp would compile in an empty
+# -X main.BuildVersion.
+BUILD=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 CURRENT_OS := $(shell uname -s | tr '[:upper:]' '[:lower:]')
 CURRENT_ARCH := $(shell uname -m | tr '[:upper:]' '[:lower:]')
 SHA256=$(shell command -v sha256sum >/dev/null 2>&1 && echo sha256sum || echo shasum -a 256)
@@ -25,7 +30,7 @@ LD_FLAGS=-ldflags "-X main.BuildVersion=$(BUILD)"
 GO_BUILD=CGO_ENABLED=0 go build -trimpath -buildvcs=false $(LD_FLAGS)
 
 .PHONY: build
-build:
+build: verify-toolchain
 	$(GO_BUILD) -o $(BUILD_DIR)/ ./...
 
 .PHONY: verify-toolchain
@@ -41,12 +46,15 @@ verify-toolchain:
 .PHONY: verify-reproducible
 verify-reproducible: verify-toolchain
 	rm -rf $(BUILD_DIR)/repro-a $(BUILD_DIR)/repro-b
-	$(GO_BUILD) -o $(BUILD_DIR)/repro-a/ ./...
-	@# A wall-clock stamp is the defect this gate exists to catch, and two cached
-	@# builds can land in the same epoch second. Sleeping guarantees the second
-	@# build would differ if anything time-derived crept back into the stamp.
+	@# Each build is its own make invocation on purpose. Make expands an entire
+	@# recipe before running any of it, so a $(shell date +%s) stamp inside one
+	@# recipe is evaluated once and substituted into both builds identically -
+	@# this gate would then pass against the very defect it exists to catch, no
+	@# matter how long it slept. Separate invocations re-evaluate the stamp, and
+	@# the sleep is what makes a time-derived one actually differ between them.
+	$(MAKE) --no-print-directory build BUILD_DIR=$(BUILD_DIR)/repro-a
 	sleep 1
-	$(GO_BUILD) -o $(BUILD_DIR)/repro-b/ ./...
+	$(MAKE) --no-print-directory build BUILD_DIR=$(BUILD_DIR)/repro-b
 	@a=`cd $(BUILD_DIR)/repro-a && $(SHA256) * | sort -k2`; \
 	b=`cd $(BUILD_DIR)/repro-b && $(SHA256) * | sort -k2`; \
 	if [ "$$a" != "$$b" ]; then \
@@ -60,7 +68,7 @@ buildLinuxX86:
 
 .PHONY: buildImage
 buildImage:
-	docker buildx build --platform=linux/amd64,linux/arm64 -t ghcr.io/tbxark/map-proxy:latest . --push --provenance=false
+	docker buildx build --platform=linux/amd64,linux/arm64 --build-arg BUILD_VERSION=$(BUILD) -t ghcr.io/tbxark/map-proxy:latest . --push --provenance=false
 
 .PHONY: format
 format:
