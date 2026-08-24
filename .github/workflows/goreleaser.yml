@@ -3,7 +3,11 @@ name: Goreleaser
 on:
   push:
     tags:
-      - "*"
+      # Only this fork's own release scheme, never a bare upstream version.
+      # Upstream tags are already present here after fetching upstream, so a
+      # pattern of "*" would publish releases of upstream versions under this
+      # fork's name the first time tags are synced to the remote.
+      - "v*-h*"
 
 jobs:
   goreleaser:
