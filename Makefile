@@ -43,6 +43,23 @@ verify-toolchain:
 		echo "ALLOW_TOOLCHAIN_DRIFT is set, continuing."; \
 	fi
 
+# Without this, dropping -trimpath would go unnoticed: verify-reproducible runs
+# both builds on one machine from one directory, so embedded absolute paths are
+# identical in both and the hashes still match. CURDIR is exactly the prefix that
+# leaks when -trimpath is absent, and it is correct inside the Docker builder too
+# (/app), unlike $$HOME.
+.PHONY: verify-trimpath
+verify-trimpath: build
+	@n=`LC_ALL=C grep -ac "$(CURDIR)" $(BUILD_DIR)/mcp-proxy || true`; \
+	if [ "$$n" != "0" ]; then \
+		echo "binary embeds the build directory $(CURDIR) ($$n matches): -trimpath is not in effect"; \
+		exit 1; \
+	fi; \
+	echo "no build-directory paths in the binary"
+
+.PHONY: verify
+verify: verify-toolchain verify-trimpath verify-reproducible
+
 .PHONY: verify-reproducible
 verify-reproducible: verify-toolchain
 	rm -rf $(BUILD_DIR)/repro-a $(BUILD_DIR)/repro-b
