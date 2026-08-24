@@ -17,6 +17,10 @@ jobs:
       -
         name: Set up Go
         uses: actions/setup-go@v5
+        with:
+          # Pin the toolchain to the repository: without this the Go version
+          # floats between releases, which no goreleaser setting can fix.
+          go-version-file: go.mod
       -
         name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
