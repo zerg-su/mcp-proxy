@@ -298,8 +298,13 @@ func validateOptions(field string, options *OptionsV2) error {
 	// from null: it does not inherit the proxy's tokens (load only inherits when
 	// authTokens is nil) and it does not attach the auth middleware (which needs
 	// len > 0), so the route ends up open while the config reads as configured.
+	//
+	// The message stays neutral about what omitting the key would do, because
+	// this function validates both mcpProxy.options and each server's options:
+	// omitting it on a server inherits the proxy's tokens, while omitting it on
+	// mcpProxy itself simply leaves authentication unconfigured.
 	if options.AuthTokens != nil && len(options.AuthTokens) == 0 {
-		return fmt.Errorf(`%s.authTokens is an empty array, which leaves the route unauthenticated: remove the key to inherit mcpProxy.options.authTokens, or list at least one token`, field)
+		return fmt.Errorf(`%s.authTokens is an empty array, which is not the same as omitting the key: an empty list attaches no authentication at all, while an omitted key keeps the inherited or default behaviour - remove the key, or list at least one token`, field)
 	}
 	for i, token := range options.AuthTokens {
 		if strings.TrimSpace(token) == "" {
