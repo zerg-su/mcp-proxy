@@ -3,6 +3,18 @@ builds:
   - id: mcp-proxy
     main: .
     binary: mcp-proxy
+    # goreleaser adds neither of these on its own: -trimpath keeps the runner's
+    # absolute paths out of the released binaries, and -buildvcs=false keeps Go
+    # from stamping vcs.revision/vcs.modified alongside the version below.
+    flags:
+      - -trimpath
+      - -buildvcs=false
+    # The Makefile builds with CGO off; without this the release path differed
+    # from the local one by more than the version stamp.
+    env:
+      - CGO_ENABLED=0
+    # Otherwise archive mtimes come from the wall clock at release time.
+    mod_timestamp: '{{ .CommitTimestamp }}'
     ldflags:
       - -s -w -X main.BuildVersion={{.Version}}
     goos:
