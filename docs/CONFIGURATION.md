@@ -215,4 +215,8 @@ Notes:
   `pingInterval`, `autoReconnect`, `reconnectInterval`) are defaults for servers that omit
   them, so a fleet-wide setting can be declared once. `disabled` is per-server only and is
   not inherited.
+- An empty `authTokens` array is rejected at startup, at either level. Omitting the key (or
+  writing `null`) means "inherit the proxy's tokens", but `[]` is a third state that inherits
+  nothing and attaches no authentication, leaving the route open while the config reads as
+  configured. Remove the key to inherit, or list at least one token.
 - To discover tool names for filtering, start without a filter and check logs for lines like `<server> Adding tool <name>`.
