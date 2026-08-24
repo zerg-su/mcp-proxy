@@ -15,8 +15,13 @@ builds:
       - CGO_ENABLED=0
     # Otherwise archive mtimes come from the wall clock at release time.
     mod_timestamp: '{{ .CommitTimestamp }}'
+    # The v prefix is restored on purpose: .Version strips it, while the Makefile
+    # stamps `git describe` output, which keeps it. Without this the same commit
+    # reports 0.58.0-h1 from a release binary and v0.58.0-h1 from a local one,
+    # and incident triage has to know which path produced the artifact in hand
+    # before it can match a version string to a tag.
     ldflags:
-      - -s -w -X main.BuildVersion={{.Version}}
+      - -s -w -X main.BuildVersion=v{{.Version}}
     goos:
       - linux
       - darwin
