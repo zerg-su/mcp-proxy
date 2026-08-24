@@ -1,3 +1,7 @@
+> [!NOTE] This is the `zerg-su/mcp-proxy` fork. The text below is upstream's and is kept
+> verbatim so it never conflicts on rebase. Fork-specific rules (delta discipline,
+> the gate rule, release tagging) live in [FORK.md](FORK.md) under "Working in this fork".
+
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
