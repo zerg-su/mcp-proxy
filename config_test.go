@@ -100,6 +100,19 @@ func TestValidateConfig(t *testing.T) {
 		{name: "invalid base URL", mutate: func(c *Config) { c.McpProxy.BaseURL = "localhost:9090" }, wantErr: "absolute http(s) URL"},
 		{name: "unknown proxy type", mutate: func(c *Config) { c.McpProxy.Type = "websocket" }, wantErr: "mcpProxy.type"},
 		{name: "empty token", mutate: func(c *Config) { c.McpServers["stdio"].Options.AuthTokens = []string{""} }, wantErr: "authTokens[0]"},
+		// An explicit [] neither inherits the proxy's tokens nor attaches the
+		// auth middleware, so it is rejected rather than silently opening the
+		// route. Absent and null keep meaning "inherit".
+		{name: "empty authTokens array on server", mutate: func(c *Config) {
+			c.McpServers["stdio"].Options.AuthTokens = []string{}
+		}, wantErr: `mcpServers["stdio"].options.authTokens is an empty array`},
+		// mcpProxy.options is validated before the servers, so the state load
+		// produces from a proxy-level [] - every server having inherited it - is
+		// reported against mcpProxy.options rather than against a server.
+		{name: "empty authTokens array on proxy", mutate: func(c *Config) {
+			c.McpProxy.Options.AuthTokens = []string{}
+			c.McpServers["stdio"].Options.AuthTokens = []string{}
+		}, wantErr: "mcpProxy.options.authTokens is an empty array"},
 		{name: "unknown filter mode", mutate: func(c *Config) {
 			c.McpServers["stdio"].Options.ToolFilter = &ToolFilterConfig{Mode: "permit", List: []string{"tool"}}
 		}, wantErr: "toolFilter.mode"},

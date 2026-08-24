@@ -294,6 +294,13 @@ func validateOptions(field string, options *OptionsV2) error {
 	if err := validateDuration(field+".pingInterval", options.PingInterval); err != nil {
 		return err
 	}
+	// An explicit empty array is a third state, distinct from an absent key and
+	// from null: it does not inherit the proxy's tokens (load only inherits when
+	// authTokens is nil) and it does not attach the auth middleware (which needs
+	// len > 0), so the route ends up open while the config reads as configured.
+	if options.AuthTokens != nil && len(options.AuthTokens) == 0 {
+		return fmt.Errorf(`%s.authTokens is an empty array, which leaves the route unauthenticated: remove the key to inherit mcpProxy.options.authTokens, or list at least one token`, field)
+	}
 	for i, token := range options.AuthTokens {
 		if strings.TrimSpace(token) == "" {
 			return fmt.Errorf("%s.authTokens[%d] cannot be empty", field, i)
