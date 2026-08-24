@@ -9,25 +9,45 @@ on:
       # fork's name the first time tags are synced to the remote.
       - "v*-h*"
 
+# The default token permissions are whatever the repository grants; a release
+# needs exactly one thing, so it gets exactly that.
+permissions:
+  contents: write
+
 jobs:
   goreleaser:
     runs-on: ubuntu-latest
     steps:
+      # Actions are pinned by commit, not by tag. A tag is mutable: whoever can
+      # move it can run different code in this workflow tomorrow than the code
+      # reviewed today, with this job's token. For a fork whose purpose is
+      # supply-chain hygiene, trusting a mutable reference here would undo the
+      # point of vendoring the Go dependencies. Comments record which release
+      # each SHA was, so bumping stays legible.
       -
         name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
       -
         name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           # Pin the toolchain to the repository: without this the Go version
           # floats between releases, which no goreleaser setting can fix.
           go-version-file: go.mod
+      # The gates exist in the Makefile; before this step nothing on the
+      # publishing path ever called them, so a release could ship binaries that
+      # failed every check the repository makes about itself. `verify` covers
+      # the toolchain, -trimpath, the goreleaser flag list, and reproducibility.
+      -
+        name: Verify
+        run: |
+          make verify
+          go test ./...
       -
         name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
         with:
           # either 'goreleaser' (default) or 'goreleaser-pro'
           distribution: goreleaser
