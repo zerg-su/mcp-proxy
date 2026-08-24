@@ -1,9 +1,13 @@
 FROM golang:1.25.5 AS builder
+# The version stamp is computed on the host and passed in, never derived here:
+# .dockerignore removes tracked files from the build context, so git inside this
+# stage sees them as deleted and would report a clean tree as dirty.
+ARG BUILD_VERSION=dev
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN make build
+RUN make build BUILD=$BUILD_VERSION
 
 FROM node:lts-bookworm-slim AS node
 
