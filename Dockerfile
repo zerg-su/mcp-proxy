@@ -4,8 +4,10 @@ FROM golang:1.25.5 AS builder
 # stage sees them as deleted and would report a clean tree as dirty.
 ARG BUILD_VERSION=dev
 WORKDIR /app
-COPY go.mod go.sum ./
-RUN go mod download
+# No `go mod download` layer: the repository vendors its dependencies, so the
+# compiler reads vendor/ and that download would fetch modules it never uses -
+# turning an otherwise offline build into one that needs the network, which is
+# exactly what vendoring was committed to avoid.
 COPY . .
 RUN make build BUILD=$BUILD_VERSION
 
