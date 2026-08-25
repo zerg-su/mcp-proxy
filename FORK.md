@@ -152,6 +152,11 @@ upstream pull requests.
 - **`REGISTRY` has no default in `scripts/build-push.sh`.** This repository is
   public. A registry host here would advertise the account and naming scheme the
   images live under.
+- **The builder stage is pinned to `$BUILDPLATFORM` while the runtime stage is
+  not.** The image is published as a two-platform manifest list, and an
+  unpinned builder would be emulated under QEMU once per target to compile Go
+  that cross-compiles for free. The runtime stage must stay per-target: it
+  carries node, uv and the binary itself.
 
 ### Before proposing a change
 

@@ -18,10 +18,28 @@ set -euo pipefail
 
 REPOSITORY="${REPOSITORY:-tools/mcp-proxy}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
-PLATFORM="${PLATFORM:-linux/amd64}"
+# One manifest list for both architectures: the servers that pull this are
+# x86_64 and the laptops that pull it are Apple Silicon, and asking each puller
+# to know which is which is how "no matching manifest" happens at run time.
+PLATFORM="${PLATFORM:-linux/amd64,linux/arm64}"
 
 BUILD_ONLY=0
 [ "${1:-}" = "--build-only" ] && BUILD_ONLY=1
+
+# --load hands the result to the local docker daemon, which stores one image and
+# not a manifest list, so a two-platform build fails there. Narrow to this
+# machine's own architecture instead of failing: a local build exists to be run
+# here.
+case "${BUILD_ONLY}:${PLATFORM}" in
+    1:*,*)
+        case "$(uname -m)" in
+            x86_64|amd64)  PLATFORM=linux/amd64 ;;
+            arm64|aarch64) PLATFORM=linux/arm64 ;;
+            *) echo "cannot map $(uname -m) to a docker platform; set PLATFORM" >&2; exit 1 ;;
+        esac
+        echo "==> --build-only: loading ${PLATFORM} only, the local daemon holds no manifest list" >&2
+        ;;
+esac
 
 if [ "${BUILD_ONLY}" -eq 0 ] && [ -z "${REGISTRY:-}" ]; then
     echo "REGISTRY is not set; refusing to guess where to publish" >&2
@@ -94,8 +112,9 @@ fi
 # context, so git in the builder sees them as deleted and would report every
 # clean tree as dirty. See the BUILD comment in the Makefile.
 #
-# Platform is explicit: a silently arm64 image built on an Apple laptop would
-# fail on an x86_64 host at run time instead of here at build time.
+# Platform is explicit: without it buildx publishes whatever the build machine
+# happens to be, and an image that runs on the laptop it was built on but not on
+# the host that pulls it fails at run time instead of here.
 BUILD_ARGS=(
     buildx build
     --platform "${PLATFORM}"
