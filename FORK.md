@@ -57,11 +57,34 @@ Read this part before treating the fork as an audited artifact.
 - Dependencies are vendored, so the binary builds with no network at all
   (`GOFLAGS=-mod=vendor GOPROXY=off`).
 - An empty `authTokens` array is rejected instead of silently disabling
-  authentication on a route while reading as configured.
+  authentication on a route while reading as configured. `-require-auth` covers
+  the other half of the same failure — the key simply being absent — by refusing
+  a config in which any enabled server would be published with no
+  authentication. It is off by default, because an open route is a valid local
+  setup; it exists so that a deployment can state that it is not one here.
 - Every build path is reproducible, and each guarantee has a gate that was
   demonstrated to fail when the thing it protects is removed: `make verify`
-  covers the toolchain version, `-trimpath`, the goreleaser flag list, and
-  byte-identical rebuilds. The release workflow runs it before publishing.
+  covers the toolchain version, `-trimpath`, the goreleaser flag list, the
+  Dockerfile's digest pins and non-root runtime, and byte-identical rebuilds.
+  The release workflow runs it before publishing.
+- The dependencies are gated too, not only the way they are compiled.
+  `make verify-vendor` re-materialises `vendor/` and diffs it against what is
+  committed — the only check here that notices a tampered dependency, since
+  `go build` compiles one without complaint and `go mod verify` is vacuous in a
+  vendored repository. `make verify-vuln` runs `govulncheck` under the toolchain
+  `go.mod` pins rather than whichever Go is installed, because the scanning
+  version is part of the answer. Both need the network and are therefore kept
+  out of `verify`.
+- The checks run on the commits, and before anything is published. Until
+  `checks.yml` existed, the only workflow triggered on a release tag, so every
+  check first ran after the decision to release had already been made — and the
+  image, the artifact this fork mostly exists to produce, went through none of
+  them.
+- The runtime image pins every base by digest and does not run as root. Neither
+  is visible to the other gates: reproducibility compares two builds made a
+  second apart, which resolve a moving tag identically, and nothing else here
+  ever runs the image. `scripts/refresh-base-digests.sh` keeps the pins from
+  rotting.
 - Release tags use `v<upstream>-h<N>`, and the workflow triggers on nothing
   else, so upstream tags present in this fork cannot publish releases under its
   name.
@@ -80,6 +103,25 @@ Read this part before treating the fork as an audited artifact.
   stamp to the build. Upstream's `docker.yml` was removed: it ran a third-party
   action pinned to a branch, which is arbitrary future code holding a token with
   write access to packages.
+- **No container image scan, and no SBOM.** This one is a gap, not a decision
+  that the question does not matter. `govulncheck` covers the Go code and the
+  standard library it is compiled against — that is the whole binary, since it
+  is statically linked — and covers nothing else in the image: Debian packages,
+  Node, npm, uv and Python are all unscanned, and so is every downstream MCP
+  server fetched at run time. Closing it properly means a scanner in the
+  publishing path *and* a policy for the case that makes scanners get switched
+  off, a HIGH with no fixed version available in the pinned base. Pinning by
+  digest is what makes that policy possible to hold — exposure stops moving
+  between refreshes — so this is the next thing to add here, not something
+  ruled out.
+- **The image still carries Node, npm, uv, Python and git.** A deployment whose
+  downstreams are all remote HTTP needs none of them, and one that spawns two
+  known stdio servers would be better served by an image with exactly those two
+  installed at build time — which also lets the runtime keep `noexec`, see
+  docs/DEPLOYMENT.md. Both are the right shape for a *deployment's* image, built
+  from this one; stripping the general image here would break the case upstream
+  supports, and guessing which downstreams a given deployment spawns is not
+  something this repository can do.
 
 ## Working with upstream
 
@@ -189,11 +231,19 @@ upstream pull requests.
 
 ### Before proposing a change
 
-    make verify        # toolchain, -trimpath, release flags, reproducibility
+    make verify               # toolchain, -trimpath, release flags, Dockerfile, reproducibility
     go test ./...
     go vet ./...
+    make verify-supply-chain  # vendor/ against go.sum, govulncheck; needs the network
 
 `make verify` needs `ALLOW_TOOLCHAIN_DRIFT=1` unless your Go matches `go.mod`.
+`make verify-supply-chain` does not: it pins the toolchain itself, for both
+halves. It does need `govulncheck` installed, and a clean `vendor/`, `go.mod`
+and `go.sum` — it cannot tell your uncommitted edit from a tampered dependency,
+and says so rather than guessing.
+
+CI runs all four on every push to `master` and `hardening*`, on pull requests,
+and again before a release publishes anything.
 
 Keep this repository free of identifiers belonging to whoever operates it —
 registry hosts, account numbers, internal service or team names. Operational
