@@ -115,6 +115,60 @@ func TestProxyCLI(t *testing.T) {
 			}
 		}
 	})
+
+	// Authentication is opt-in per route, so a config that names no tokens is
+	// valid and serves openly. -require-auth is how a deployment states that
+	// this is not acceptable where it runs, and it has to reject the config
+	// before -check-config reports it OK.
+	t.Run("require-auth rejects a server with no tokens", func(t *testing.T) {
+		t.Parallel()
+
+		open := writeConfig(t, `{
+  "mcpProxy": {
+    "baseURL": "http://127.0.0.1:9999",
+    "addr": "127.0.0.1:9999",
+    "name": "p",
+    "version": "1",
+    "type": "streamable-http"
+  },
+  "mcpServers": {"open": {"command": "true"}}
+}`)
+		// The same file without the flag is a valid config. The flag is the
+		// only difference, which is what makes this policy and not a fix.
+		if _, stderr, err := runCLI(t, "-check-config", "-config", open); err != nil {
+			t.Fatalf("-check-config alone should accept an unauthenticated config: %v\n%s", err, stderr)
+		}
+		_, stderr, err := runCLI(t, "-check-config", "-require-auth", "-config", open)
+		if err == nil {
+			t.Fatal("-require-auth accepted a server that would be served without authentication")
+		}
+		if !strings.Contains(stderr, "open") {
+			t.Errorf("stderr = %q, want the unauthenticated server named", stderr)
+		}
+	})
+
+	// The tokens that count are the ones a server ends up with: a fleet-wide
+	// default declared once on mcpProxy is inherited by every server that omits
+	// the key, and reporting those as open routes would make the flag useless
+	// for the deployment it exists for.
+	t.Run("require-auth accepts tokens inherited from the proxy", func(t *testing.T) {
+		t.Parallel()
+
+		inherited := writeConfig(t, `{
+  "mcpProxy": {
+    "baseURL": "http://127.0.0.1:9999",
+    "addr": "127.0.0.1:9999",
+    "name": "p",
+    "version": "1",
+    "type": "streamable-http",
+    "options": {"authTokens": ["shared"]}
+  },
+  "mcpServers": {"inherits": {"command": "true"}}
+}`)
+		if _, stderr, err := runCLI(t, "-check-config", "-require-auth", "-config", inherited); err != nil {
+			t.Fatalf("-require-auth rejected an inherited token: %v\n%s", err, stderr)
+		}
+	})
 }
 
 // A downstream server that cannot start must not take the whole proxy down:

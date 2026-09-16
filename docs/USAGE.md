@@ -11,6 +11,8 @@
 -authorize string      run a one-time interactive OAuth authorization for the
                         named mcpServers entry, then exit
 -check-config          load and validate the config, then exit
+-require-auth          refuse to start, or to report a config OK, when any
+                        enabled server would be served with no authTokens
 -log-level value       log level: debug, info, warn, or error (default info)
 -version               print version and exit
 -help                  print help and exit
@@ -29,6 +31,32 @@ mcp-proxy -config config.json -check-config
 Validation includes transport requirements, absolute HTTP URLs, OAuth callback
 safety, authentication tokens, and tool-filter modes. Invalid configuration
 exits non-zero with the affected field or server name.
+
+### Requiring authentication
+
+Authentication is opt-in per route: a server with no `authTokens`, and none
+inherited from `mcpProxy.options`, is served to anyone who can reach the
+address. That is a valid local setup, so it is not an error — which also means
+nothing tells you when a deployment ends up in that state.
+
+`-require-auth` makes it an error. It rejects a config in which any enabled
+server would be published without authentication, naming every one it finds,
+and it applies to both `-check-config` and a real start:
+
+```bash
+mcp-proxy -config config.json -check-config -require-auth
+# level=ERROR msg="Config rejected" err="-require-auth: 2 of 3 server(s) would
+# be served without authentication: fetch, notes; give each one
+# options.authTokens, or set mcpProxy.options.authTokens as the default they
+# inherit"
+# exit status 1
+```
+
+Tokens inherited from `mcpProxy.options.authTokens` count, so a fleet-wide
+default declared once satisfies it. Servers with `"disabled": true` are ignored,
+because they mount no route. Passing it to the running daemon as well as to the
+validation step is the point: a config that loses its tokens later then fails to
+start instead of coming back up open.
 
 ## Endpoints
 

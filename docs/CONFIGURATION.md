@@ -219,4 +219,8 @@ Notes:
   writing `null`) means "inherit the proxy's tokens", but `[]` is a third state that inherits
   nothing and attaches no authentication, leaving the route open while the config reads as
   configured. Remove the key to inherit, or list at least one token.
+- Omitting `authTokens` everywhere is not an error: the route is simply published without
+  authentication. Run with `-require-auth` where that must not happen — it rejects a config
+  in which any enabled server would be served openly. See "Requiring authentication" in
+  [USAGE.md](USAGE.md).
 - To discover tool names for filtering, start without a filter and check logs for lines like `<server> Adding tool <name>`.
