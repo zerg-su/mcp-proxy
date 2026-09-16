@@ -90,6 +90,35 @@ is always the exact delta and stays reviewable.
 The Go module path is intentionally still `github.com/tbxark/mcp-proxy`: nothing
 imports this as a library, and renaming it would conflict on every rebase.
 
+## Upstream bases
+
+| Base | Rebased | Upstream delta from the previous base | Review depth of that delta |
+|---|---|---|---|
+| v0.58.0 | fork created | — | as described above |
+| v1.1.0 | 2026-09-16 | 16 commits, 29 files, +3319/-343; `mcp-go` 0.58.0 → 1.1.0 (vendor +5432/-280, 44 files, all under `mcp-go`) | proxy delta (`client.go`, `http.go`, `config.go`, `oauth.go`, `oauth_store.go`, `doctor.go`, `main.go`) line by line; `mcp-go` targeted as for the original base: stdio transport (subprocess, environment, stderr) line by line, the new protocol-2026-07-28 files (`discover`, `mrtr`, `headers`, `streamable_http_modern`) by purpose and surface, greps for `init()`, telemetry, hardcoded endpoints and environment access over the whole delta; `govulncheck` clean for reachable code (GO-2026-5970 in `x/text` 0.14.0 is not reachable and is upstream's to bump) |
+
+The v1.1.0 rebase resolved four conflicts, none in behaviour: the empty-`authTokens`
+check now sits after upstream's new `reconnectInterval` validation; `Makefile`
+keeps upstream's `MODULE` line above the reproducible stamp; the docs bullet was
+appended; and upstream's new `CLAUDE.md` is kept verbatim with a pointer here,
+which is why the fork rules moved into this file.
+
+Deployment notes from the v1.1.0 review, none of them defects in the proxy:
+
+- Stdio children still inherit the gateway's whole environment
+  (`cmd.Env = append(os.Environ(), c.env...)` in `mcp-go`), unchanged since v0.58.0.
+  A deployment that keeps secrets out of the gateway's own environment keeps
+  them out of every child's.
+- A stdio child's stderr is now drained and logged at `debug`. Anything a child
+  prints - a traceback with a token in it, say - reaches the gateway log when it
+  runs with `-log-level debug`. `info` and above discard it.
+- The `mcp-go` client now probes `server/discover` before falling back to
+  `initialize`, bounded at 5 s. A stdio server that ignores unknown methods
+  instead of answering "method not found" delays its own mount by that much.
+- `autoReconnect` (off by default) rebuilds a stdio child with the same command
+  and environment; a wrapper in the command (uid drop, sandboxing) is re-applied
+  on every respawn because it *is* the command.
+
 ## Working in this fork
 
 A fork of `TBXark/mcp-proxy`, kept deliberately close to upstream. Read
