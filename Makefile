@@ -87,8 +87,44 @@ verify-release-flags:
 	fi; \
 	echo "release flags match the build flags"
 
+# Two properties of the image that nothing else would notice losing, both
+# checked statically because both are literally properties of this file.
+#
+# The digest pins: reproducibility is gated by two builds made a second apart,
+# which resolve a moving tag to the same thing every time, so that gate cannot
+# see an unpinned base at all. Without this one, deleting a digest passes
+# everything.
+#
+# The USER instruction: it is the last line of a long file, the kind that
+# survives a rebase as a deletion nobody reads. Losing it silently returns the
+# proxy - and every stdio child it spawns, which inherits its identity - to
+# root inside the container. Checking that some USER exists is not enough;
+# `USER root` reads as compliance, so the value is checked too.
+#
+# Demonstrated against both defects: removing the digest from one FROM line
+# fails the first check with that line printed, and replacing the final `USER
+# mcp:mcp` with either nothing or `USER root` fails the second.
+.PHONY: verify-dockerfile
+verify-dockerfile:
+	@unpinned=`grep -E '^[[:space:]]*FROM[[:space:]]' Dockerfile | grep -vE '@sha256:[a-f0-9]{64}' || true`; \
+	if [ -n "$$unpinned" ]; then \
+		echo "base image not pinned by digest:"; \
+		echo "$$unpinned"; \
+		echo "a tag is a pointer its publisher can move; scripts/refresh-base-digests.sh resolves digests"; \
+		exit 1; \
+	fi; \
+	echo "every FROM is pinned by digest"
+	@awk '/^[[:space:]]*FROM[[:space:]]/ {u=""} \
+	      /^[[:space:]]*USER[[:space:]]/ {u=$$2} \
+	      END {if (u == "" || u ~ /^(root|0)(:|$$)/) exit 1}' Dockerfile || { \
+		echo "the final stage does not drop to a non-root user:"; \
+		echo "the proxy, and every stdio server it spawns, would run as root in the container"; \
+		exit 1; \
+	}
+	@echo "the final stage runs as a non-root user"
+
 .PHONY: verify
-verify: verify-toolchain verify-trimpath verify-release-flags verify-reproducible
+verify: verify-toolchain verify-trimpath verify-release-flags verify-dockerfile verify-reproducible
 
 # Split from `verify` because of what they need, not what they check: both reach
 # the network - one to re-download the dependencies, one for the vulnerability
