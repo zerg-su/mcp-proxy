@@ -2,7 +2,7 @@
 # instead of being emulated once per target. Go needs no cross toolchain here -
 # CGO_ENABLED=0 in the Makefile - so the only thing a QEMU-emulated builder
 # would add is minutes of compile time per platform.
-FROM --platform=$BUILDPLATFORM golang:1.25.5 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.25.14 AS builder
 # The version stamp is computed on the host and passed in, never derived here:
 # .dockerignore removes tracked files from the build context, so git inside this
 # stage sees them as deleted and would report a clean tree as dirty.
