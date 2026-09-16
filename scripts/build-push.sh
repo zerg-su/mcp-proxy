@@ -82,6 +82,22 @@ IMAGE="${REGISTRY}/${REPOSITORY}:${IMAGE_TAG}"
 
 echo "==> ${IMAGE} (${PLATFORM})"
 
+# The image is the one artifact this repository produces that no CI job has ever
+# looked at: goreleaser publishes binaries from a tag and runs the gates first,
+# while images are built here, on a laptop, from whatever the tree happens to
+# contain. Everything downstream - the pipelines that pull this image - inherits
+# that gap. So the publishing path runs the checks before it builds anything,
+# and a failure stops the publish rather than being noticed afterwards in the
+# registry.
+#
+# `make verify` is absent on purpose, not by oversight. Its subjects are the
+# host build - -trimpath, a byte-identical rebuild - and it hard-fails when the
+# operator's Go differs from go.mod, which says nothing about an image compiled
+# by the pinned toolchain inside the builder stage. That stage runs
+# verify-toolchain itself, so a Dockerfile left on an old builder image fails
+# the docker build. The checks below are the ones whose answer does not depend
+# on which Go this machine has: the supply-chain gates pin GOTOOLCHAIN
+# themselves, and vet and the tests read the same source the image will carry.
 if [ "${BUILD_ONLY}" -eq 0 ]; then
     # Tags are immutable, so re-publishing an existing tag fails. Only a
     # confirmed ImageNotFoundException means "not built yet"; any other describe
@@ -101,6 +117,14 @@ if [ "${BUILD_ONLY}" -eq 0 ]; then
         echo "${DESCRIBE_OUT}" >&2
         exit 1
     fi
+
+    # After the describe call, so that re-running for a tag already in the
+    # registry still costs nothing, and before the login, so that a failing gate
+    # stops the run without a credential having been handed to docker.
+    echo "==> gates"
+    go vet ./...
+    go test ./...
+    make verify-supply-chain
 
     aws ecr get-login-password --region "${AWS_REGION}" \
         | docker login --username AWS --password-stdin "${REGISTRY}"

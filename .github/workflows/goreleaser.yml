@@ -44,7 +44,20 @@ jobs:
         name: Verify
         run: |
           make verify
+          go vet ./...
           go test ./...
+      # See checks.yml for why the scanner is installed with a different
+      # toolchain than the one it scans for.
+      -
+        name: Install govulncheck
+        run: GOTOOLCHAIN=go1.27.1 go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
+      # The release is the last moment these can still stop something. A tagged
+      # build is exactly when "the dependencies are what they claim to be" and
+      # "nothing reachable here has a known vulnerability" stop being hygiene and
+      # become a claim made to whoever downloads the artifact.
+      -
+        name: Verify supply chain
+        run: make verify-supply-chain
       -
         name: Run GoReleaser
         uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6

@@ -1,0 +1,78 @@
+name: Checks
+
+# Until this file existed, the only automation in this repository ran on a
+# release tag - so every check the repository makes about itself first ran after
+# the decision to release had already been made, on a commit that could no
+# longer be changed without moving a tag. These run on the commits instead.
+#
+# There is deliberately no `schedule:` trigger, tempting as one is for the
+# vulnerability scan: GitHub runs scheduled workflows only from the repository's
+# default branch, which here is `master`, and `master` tracks upstream
+# untouched - it does not and must not carry this file. A cron added here would
+# sit in the file looking like weekly coverage and never fire once. Run
+# `make verify-supply-chain` by hand, or through workflow_dispatch below, when
+# the question is "has anything been disclosed since the last commit" - the
+# answer changes with the vulnerability database, not with the code.
+on:
+  push:
+    branches:
+      - master
+      - "hardening*"
+  pull_request:
+  workflow_dispatch:
+
+# Nothing here publishes anything, so nothing here needs to write anything.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build gates
+    runs-on: ubuntu-latest
+    steps:
+      # Actions are pinned by commit, not by tag, for the reason spelled out in
+      # goreleaser.yml: a tag is mutable, and a fork whose point is supply-chain
+      # hygiene cannot trust a mutable reference to run in its own CI. The SHAs
+      # are the same ones that workflow already vetted.
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+      # `verify` is the offline half: toolchain, -trimpath, the goreleaser flag
+      # list, and a byte-identical rebuild. It must keep passing with no network
+      # at all, which is why the supply-chain gates are a separate job and not
+      # one more name on this line.
+      - name: Verify
+        run: make verify
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test ./...
+
+  supply-chain:
+    name: Supply-chain gates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+      # The scanner needs a newer Go than the code it scans for: golang.org/x/vuln
+      # v1.8.0 requires go >= 1.26.0, and this repository pins 1.25.x, so
+      # `go install` under the pinned toolchain fails outright - measured inside
+      # golang:1.25.14, "requires go >= 1.26.0 (running go 1.25.14)". GOTOOLCHAIN
+      # here builds the tool and nothing else; `make verify-vuln` re-pins the
+      # scan itself to the version in go.mod, which is the version whose standard
+      # library the release will actually contain.
+      - name: Install govulncheck
+        run: GOTOOLCHAIN=go1.27.1 go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
+      # Re-downloads every dependency and diffs the result against the committed
+      # vendor/, then scans for known vulnerabilities. Separate from the build
+      # job because these are the two checks that need the network, and because
+      # a vulnerability disclosed upstream should not read as "the tests broke".
+      - name: Verify supply chain
+        run: make verify-supply-chain
