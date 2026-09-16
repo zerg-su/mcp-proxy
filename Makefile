@@ -23,6 +23,12 @@ SHA256=$(shell command -v sha256sum >/dev/null 2>&1 && echo sha256sum || echo sh
 # available"). So the expected version is read from go.mod and compared.
 GO_VERSION_EXPECTED=go$(shell awk '/^go /{print $$2; exit}' go.mod)
 GO_VERSION_ACTUAL=$(shell go env GOVERSION)
+# Only verify-vendor uses this, and it is set explicitly rather than inherited:
+# the documented build environment for this repository is GOPROXY=off, and a
+# developer with that exported and a warm module cache would re-vendor from the
+# cache - the hashes are still checked against go.sum, but nothing is fetched,
+# so the gate would silently stop asking the proxy anything.
+VENDOR_PROXY ?= https://proxy.golang.org,direct
 LD_FLAGS=-ldflags "-X main.BuildVersion=$(BUILD)"
 # -trimpath keeps the build machine's absolute paths out of the binary.
 # -buildvcs=false keeps Go from stamping vcs.revision/vcs.modified on its own,
@@ -83,6 +89,79 @@ verify-release-flags:
 
 .PHONY: verify
 verify: verify-toolchain verify-trimpath verify-release-flags verify-reproducible
+
+# Split from `verify` because of what they need, not what they check: both reach
+# the network - one to re-download the dependencies, one for the vulnerability
+# database - and `verify` has to stay runnable on the offline vendored path it
+# exists to protect. Anything that publishes an artifact runs both.
+.PHONY: verify-supply-chain
+verify-supply-chain: verify-vendor verify-vuln
+
+# `go mod verify` is vacuous in this repository: it checks the module download
+# cache against go.sum, and a vendored build downloads nothing, so it passes on
+# any machine with an empty cache - which is every CI runner, every time. The
+# question worth asking about a vendored fork is the other one: does vendor/
+# still hold what go.mod and go.sum attest? Re-materialising it answers that,
+# because `go mod vendor` verifies every module against go.sum as it downloads,
+# and git says whether the result differs from what is committed.
+#
+# Demonstrated against the defect it targets: one character changed inside
+# vendor/github.com/mark3labs/mcp-go/client/stdio.go makes this fail, and
+# `go build ./...` does not notice at all - vendor/modules.txt consistency is
+# all the toolchain checks.
+#
+# Pinned with GOTOOLCHAIN for the same reason verify-vuln is: vendor/ should
+# reproduce under the toolchain that compiles it, not under whichever Go the
+# machine running the gate happens to have. It keeps a future `go mod vendor`
+# format change from reading as a tampered dependency, which is the false
+# positive that would get this gate switched off.
+#
+# It deliberately does not restore the tree on failure. The diff is the finding.
+.PHONY: verify-vendor
+verify-vendor:
+	@if [ -n "`git status --porcelain vendor go.mod go.sum`" ]; then \
+		echo "vendor/, go.mod or go.sum are already modified - commit or stash first,"; \
+		echo "otherwise this gate cannot tell your edit from a tampered dependency."; \
+		git status --short vendor go.mod go.sum; \
+		exit 1; \
+	fi
+	GOFLAGS= GOPROXY=$(VENDOR_PROXY) GOTOOLCHAIN=$(GO_VERSION_EXPECTED) go mod vendor
+	@if [ -n "`git status --porcelain vendor go.mod go.sum`" ]; then \
+		echo "vendor/ does not match what go.mod and go.sum attest:"; \
+		git status --short vendor go.mod go.sum; \
+		echo "the working tree is left as-is on purpose; the diff is the finding."; \
+		echo "restore with: git checkout -- vendor go.mod go.sum"; \
+		exit 1; \
+	fi; \
+	echo "vendor/ matches go.mod and go.sum"
+
+# govulncheck reports standard-library vulnerabilities for the toolchain it runs
+# under, which makes the scanning version part of the answer: this tree scans
+# clean under go1.27.0 and reports 17 reachable stdlib vulnerabilities under the
+# go1.25.5 it pinned until recently. A maintainer on a newer local Go would
+# therefore get a clean report for a release that ships a vulnerable one - the
+# failure mode where the gate is green and wrong.
+#
+# GOTOOLCHAIN removes the question instead of documenting it: the scan runs
+# under exactly the version go.mod pins, whatever the host has installed, and
+# Go fetches that toolchain if it is missing. This is the one place where
+# GOTOOLCHAIN is right - the build path deliberately avoids it, because a fetch
+# there would break the offline GOPROXY=off build, and this target is already
+# online for the vulnerability database.
+#
+# Note the tool itself cannot be installed by the pinned toolchain
+# (golang.org/x/vuln v1.8.0 requires go >= 1.26.0, measured inside
+# golang:1.25.14); it is built by whatever Go is on the host, and only the
+# packages it loads come from GOTOOLCHAIN. That separation is what makes this
+# work at all.
+.PHONY: verify-vuln
+verify-vuln:
+	@command -v govulncheck >/dev/null 2>&1 || { \
+		echo "govulncheck not found: go install golang.org/x/vuln/cmd/govulncheck@v1.8.0"; \
+		exit 1; \
+	}
+	@echo "scanning the standard library of $(GO_VERSION_EXPECTED), the toolchain go.mod pins"
+	GOTOOLCHAIN=$(GO_VERSION_EXPECTED) govulncheck ./...
 
 .PHONY: verify-reproducible
 verify-reproducible: verify-toolchain
