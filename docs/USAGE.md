@@ -13,6 +13,8 @@
 -check-config          load and validate the config, then exit
 -require-auth          refuse to start, or to report a config OK, when any
                         enabled server would be served with no authTokens
+-require-tool-allowlist refuse to start, or to report a config OK, when any
+                        enabled server exposes every tool its downstream offers
 -stdio-clean-env       give stdio servers only the passthrough variables and
                         their own configured env, not this process's environment
 -stdio-env-passthrough comma-separated variables copied to stdio children when
@@ -61,6 +63,37 @@ default declared once satisfies it. Servers with `"disabled": true` are ignored,
 because they mount no route. Passing it to the running daemon as well as to the
 validation step is the point: a config that loses its tokens later then fails to
 start instead of coming back up open.
+
+### Requiring a tool allow list
+
+A downstream decides which tools it offers, and it can offer more of them after
+any update. `-require-tool-allowlist` rejects a config in which any enabled
+server would publish whatever its downstream happens to expose:
+
+```bash
+mcp-proxy -config config.json -check-config -require-tool-allowlist
+# level=ERROR msg="Config rejected" err="-require-tool-allowlist: 1 of 3
+# server(s) expose every tool their downstream offers, now and after any
+# update: fetch; ..."
+```
+
+It requires, per server, `options.toolFilter` with `mode: "allow"` and a
+non-empty `list`. Three configurations look like restrictions and are not, which
+is why the check is that specific:
+
+| Config | What it actually does |
+|---|---|
+| no `toolFilter` | every tool is exposed |
+| `{"mode": "allow", "list": []}` | every tool is exposed (logged as a `WARN`) |
+| `toolFilter` on `mcpProxy.options` only | every tool is exposed; it is not inherited |
+| `{"mode": "block", "list": [...]}` | everything except the listed tools, including tools added later |
+
+Both policy flags can be combined, and each failure is reported, so one run
+lists everything that has to change:
+
+```bash
+mcp-proxy -config config.json -check-config -require-auth -require-tool-allowlist
+```
 
 ### Isolating what stdio servers inherit
 

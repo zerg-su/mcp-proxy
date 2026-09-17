@@ -169,6 +169,67 @@ func TestProxyCLI(t *testing.T) {
 			t.Fatalf("-require-auth rejected an inherited token: %v\n%s", err, stderr)
 		}
 	})
+
+	// A block list is a valid filter that stops restricting the moment the
+	// downstream ships a new tool, which is the state -require-tool-allowlist
+	// exists to reject. The empty allow list and the proxy-level-only filter
+	// are covered by the unit tests; this asserts the flag reaches the binary
+	// and that both policies report together.
+	t.Run("require-tool-allowlist rejects a block list", func(t *testing.T) {
+		t.Parallel()
+
+		blocked := writeConfig(t, `{
+  "mcpProxy": {
+    "baseURL": "http://127.0.0.1:9999",
+    "addr": "127.0.0.1:9999",
+    "name": "p",
+    "version": "1",
+    "type": "streamable-http"
+  },
+  "mcpServers": {
+    "wide": {"command": "true", "options": {"toolFilter": {"mode": "block", "list": ["dangerous"]}}}
+  }
+}`)
+		if _, stderr, err := runCLI(t, "-check-config", "-config", blocked); err != nil {
+			t.Fatalf("-check-config alone should accept a block list: %v\n%s", err, stderr)
+		}
+		_, stderr, err := runCLI(t, "-check-config", "-require-tool-allowlist", "-config", blocked)
+		if err == nil {
+			t.Fatal("-require-tool-allowlist accepted a server restricted only by a block list")
+		}
+		if !strings.Contains(stderr, "wide") {
+			t.Errorf("stderr = %q, want the unrestricted server named", stderr)
+		}
+		// The same config also has no authTokens, so asking for both must
+		// report both rather than stopping at the first.
+		_, stderr, err = runCLI(t, "-check-config", "-require-auth", "-require-tool-allowlist", "-config", blocked)
+		if err == nil {
+			t.Fatal("both policies accepted a config that violates both")
+		}
+		if !strings.Contains(stderr, "-require-auth:") || !strings.Contains(stderr, "-require-tool-allowlist:") {
+			t.Errorf("stderr = %q, want one line per failing policy", stderr)
+		}
+	})
+
+	t.Run("require-tool-allowlist accepts an allow list", func(t *testing.T) {
+		t.Parallel()
+
+		narrow := writeConfig(t, `{
+  "mcpProxy": {
+    "baseURL": "http://127.0.0.1:9999",
+    "addr": "127.0.0.1:9999",
+    "name": "p",
+    "version": "1",
+    "type": "streamable-http"
+  },
+  "mcpServers": {
+    "narrow": {"command": "true", "options": {"toolFilter": {"mode": "allow", "list": ["read"]}}}
+  }
+}`)
+		if _, stderr, err := runCLI(t, "-check-config", "-require-tool-allowlist", "-config", narrow); err != nil {
+			t.Fatalf("-require-tool-allowlist rejected a non-empty allow list: %v\n%s", err, stderr)
+		}
+	})
 }
 
 // A downstream server that cannot start must not take the whole proxy down:

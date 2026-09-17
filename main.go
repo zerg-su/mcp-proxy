@@ -18,6 +18,7 @@ func main() {
 	authorize := flag.String("authorize", "", "run a one-time interactive OAuth authorization for the named mcpServers entry, then exit. Opens a browser; run this by hand, not from the daemon/service.")
 	checkConfig := flag.Bool("check-config", false, "load and validate the config, then exit without starting the server")
 	requireAuth := flag.Bool("require-auth", false, "refuse to start, or to report a config OK, when any enabled server would be served with no authTokens in front of it. Off by default: an unauthenticated route is a valid local setup. Turn it on wherever the proxy is reachable by anything other than you.")
+	requireToolAllowlist := flag.Bool("require-tool-allowlist", false, "refuse to start, or to report a config OK, when any enabled server exposes every tool its downstream offers. Requires options.toolFilter with mode \"allow\" and a non-empty list per server: an empty list, a block list, and a filter set only on mcpProxy.options all restrict nothing.")
 	stdioCleanEnv := flag.Bool("stdio-clean-env", false, "start stdio downstream servers with only the variables named by -stdio-env-passthrough plus their own configured env, instead of inheriting this process's entire environment. Off by default, because turning it on breaks any downstream that relied on an inherited variable.")
 	stdioEnvPassthrough := flag.String("stdio-env-passthrough", "PATH,HOME", "comma-separated variables copied from this process to stdio children when -stdio-clean-env is set. The defaults are what a child needs to find and run anything; add names (SSL_CERT_FILE, NO_PROXY, SystemRoot on Windows) rather than removing these.")
 	authStatus := flag.Bool("auth-status", false, "list every configured MCP server with its transport and authentication state, then exit. Local-only: reads config.json and cached OAuth token expiry, makes no network calls.")
@@ -68,14 +69,15 @@ func main() {
 		os.Exit(1)
 	}
 	// Before -check-config reports OK, so that the same command a deployment
-	// runs to validate a config also enforces this, and before the server
-	// starts, so that a config which loses its tokens does not come back up
-	// serving them openly.
-	if *requireAuth {
-		if err := requireAuthTokens(config); err != nil {
+	// runs to validate a config also enforces these, and before the server
+	// starts, so that a config which loses its tokens or its filters does not
+	// come back up serving them openly. Every failure is reported, so one run
+	// tells you everything that has to change.
+	if errs := checkPolicies(config, *requireAuth, *requireToolAllowlist); len(errs) > 0 {
+		for _, err := range errs {
 			slog.Error("Config rejected", "err", err)
-			os.Exit(1)
 		}
+		os.Exit(1)
 	}
 	if *checkConfig {
 		fmt.Printf("Config OK: %d MCP server(s) configured\n", len(config.McpServers))

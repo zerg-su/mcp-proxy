@@ -68,6 +68,11 @@ Read this part before treating the fork as an audited artifact.
   a config in which any enabled server would be published with no
   authentication. It is off by default, because an open route is a valid local
   setup; it exists so that a deployment can state that it is not one here.
+- `-require-tool-allowlist` does the same for tool exposure. Upstream's filter
+  semantics are kept exactly as they are — an empty `allow` list exposes
+  everything, a proxy-level filter is not inherited, both deliberate, both
+  verified against a running proxy — and this makes a config that relies on
+  either fail instead of reading as a restriction it is not.
 - Every build path is reproducible, and each guarantee has a gate that was
   demonstrated to fail when the thing it protects is removed: `make verify`
   covers the toolchain version, `-trimpath`, the goreleaser flag list, the
