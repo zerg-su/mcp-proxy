@@ -210,11 +210,18 @@ upstream pull requests.
   one: with `-buildvcs=false` there is no `vcs.modified` either, so a binary from
   a modified tree claimed to be the clean commit. Docker now receives the stamp
   from the host via `BUILD_VERSION`; do not make it derive its own.
-- **The toolchain is verified, not pinned.** `GOTOOLCHAIN` with an uninstalled
-  version fetches over the network, which breaks the vendored `GOPROXY=off`
-  build — measured, not assumed: `toolchain not available`. `verify-toolchain`
-  compares against `go.mod` instead. `ALLOW_TOOLCHAIN_DRIFT=1` is for local work
-  only; CI takes its version from `go.mod` and must never need it.
+- **The toolchain is verified, not pinned by `GOTOOLCHAIN`.** Setting
+  `GOTOOLCHAIN` to an uninstalled version fetches over the network, which breaks
+  the vendored `GOPROXY=off` build — measured, not assumed: `toolchain not
+  available`. `verify-toolchain` compares against `go.mod` instead.
+  `ALLOW_TOOLCHAIN_DRIFT=1` is for local work only; CI takes its version from
+  `go.mod` and must never need it. Note what the `go` directive does on its own:
+  it names a full patch version, so a machine with an older Go downloads that
+  toolchain once and every later command reports it — which is why local builds
+  match CI exactly and `ALLOW_TOOLCHAIN_DRIFT` is normally not needed at all.
+  The first such command needs the network; after it, the toolchain is in the
+  module cache and the offline build works as before. `make verify-vuln` sets
+  `GOTOOLCHAIN` deliberately, for a different reason: see the Makefile.
 - **No `go mod download` in the Dockerfile.** Dependencies are vendored, so that
   layer only fetched modules the compiler never reads, turning an offline build
   into a networked one.
@@ -236,9 +243,11 @@ upstream pull requests.
     go vet ./...
     make verify-supply-chain  # vendor/ against go.sum, govulncheck; needs the network
 
-`make verify` needs `ALLOW_TOOLCHAIN_DRIFT=1` unless your Go matches `go.mod`.
-`make verify-supply-chain` does not: it pins the toolchain itself, for both
-halves. It does need `govulncheck` installed, and a clean `vendor/`, `go.mod`
+`make verify` needs `ALLOW_TOOLCHAIN_DRIFT=1` only if your Go somehow does not
+match `go.mod` — normally it does, because the `go` directive names a full patch
+version and the `go` command switches to it by itself (downloading it once).
+`make verify-supply-chain` does not care either way: it pins the toolchain
+itself, for both halves. It does need `govulncheck` installed, and a clean `vendor/`, `go.mod`
 and `go.sum` — it cannot tell your uncommitted edit from a tampered dependency,
 and says so rather than guessing.
 

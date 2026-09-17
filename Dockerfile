@@ -17,7 +17,7 @@
 # about what it is. scripts/refresh-base-digests.sh re-resolves the tags and
 # rewrites these lines: a digest pin stops receiving base-image security
 # updates, so it has to be cheap to refresh, or it rots.
-FROM --platform=$BUILDPLATFORM golang:1.25.14@sha256:699337d620559a59b4a2bb298ad59611e535d2ee755a34cf2d2a98f37578dc80 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.1@sha256:f44f6e88636cfb311f9ebace870ded69d943f227bb3cb27d32ffd84ea18c43ea AS builder
 # The version stamp is computed on the host and passed in, never derived here:
 # .dockerignore removes tracked files from the build context, so git inside this
 # stage sees them as deleted and would report a clean tree as dirty.
