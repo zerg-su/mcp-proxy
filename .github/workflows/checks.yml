@@ -18,6 +18,11 @@ on:
     branches:
       - master
       - "hardening*"
+      # `release` does not match "hardening*", and a release branch with no CI
+      # would be the one branch where nothing is checked until a tag has already
+      # been cut - at which point the commit can no longer be changed without
+      # moving the tag, which is the exact failure this file was written to end.
+      - release
   pull_request:
   workflow_dispatch:
 

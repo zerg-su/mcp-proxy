@@ -29,9 +29,84 @@ builds:
     goarch:
       - amd64
       - arm64
-    ignore:
+    # Upstream excluded windows/arm64. Nothing here needs CGO or a
+    # platform-specific dependency, so the target costs one more cross-compile on
+    # a runner already building five, and the exclusion only meant an ARM Windows
+    # machine had no artifact at all.
+
+archives:
+  - id: default
+    # Stated rather than inherited: this block exists to override the Windows
+    # format, and spelling out the rest keeps a goreleaser upgrade from changing
+    # archive contents or names silently. The name_template is the v2 default
+    # copied verbatim, so asset names stay byte-identical to v1.1.0-h2 and
+    # anything pinning a download URL keeps working.
+    name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}{{ with .Mips }}_{{ . }}{{ end }}{{ if not (eq .Amd64 "v1") }}{{ .Amd64 }}{{ end }}'
+    formats:
+      - tar.gz
+    # Windows shipped as .tar.gz, which Explorer cannot open without a
+    # third-party archiver. On the standalone delivery path the download is the
+    # first thing a Windows user meets, so it is a zip there.
+    format_overrides:
       - goos: windows
-        goarch: arm64
+        formats:
+          - zip
+    files:
+      - src: license*
+      - src: LICENSE*
+      - src: readme*
+      - src: README*
+      - src: changelog*
+      - src: CHANGELOG*
+
+# The image gets a CycloneDX SBOM from scripts/scan-image.sh, but the archives
+# people download had none - and on the standalone path the archive is the only
+# artifact that ever reaches a machine. Same format as the image side, so one
+# question ("which builds contain this package") has one kind of answer.
+sboms:
+  - id: archives
+    artifacts: archive
+    documents:
+      - '${artifact}.cyclonedx.json'
+    args:
+      - '$artifact'
+      - '--output'
+      - 'cyclonedx-json=$document'
+
+# Keyless signing: Sigstore issues the certificate against this workflow's OIDC
+# identity, so there is no private key to store, rotate or leak, and the
+# signature records which repository, workflow and tag produced the artifact -
+# not merely that someone holding a key vouched for it.
+#
+# Only the checksum file is signed, which covers everything: checksums.txt holds
+# the SHA-256 of every archive, so one signature plus one sha256sum verifies any
+# of them, and the release page carries one .sig/.pem pair instead of a pair per
+# archive.
+#
+#   cosign verify-blob \
+#     --certificate mcp-proxy_<version>_checksums.txt.pem \
+#     --signature   mcp-proxy_<version>_checksums.txt.sig \
+#     --certificate-identity-regexp '^https://github.com/zerg-su/mcp-proxy/' \
+#     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+#     mcp-proxy_<version>_checksums.txt
+#
+# The two identity flags are not decoration. Without them cosign accepts a valid
+# signature from any identity in the transparency log, which is every GitHub
+# workflow that has ever signed anything.
+signs:
+  - id: checksum
+    cmd: cosign
+    signature: '${artifact}.sig'
+    certificate: '${artifact}.pem'
+    args:
+      - sign-blob
+      - '--output-signature=${signature}'
+      - '--output-certificate=${certificate}'
+      - '${artifact}'
+      - '--yes'
+    artifacts: checksum
+    output: true
+
 changelog:
   disable: false
   use: github

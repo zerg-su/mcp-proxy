@@ -33,6 +33,44 @@ make build
 go install github.com/tbxark/mcp-proxy@latest
 ```
 
+### Download a release
+
+> This section describes this fork's release channel, not upstream's.
+
+Releases of the `zerg-su` fork are tagged `v<upstream>-h<N>` and carry archives
+for linux, darwin and windows on amd64 and arm64, a checksum file, a CycloneDX
+SBOM per archive, and a Sigstore signature over the checksums. Download the
+archive for your platform from the releases page, then:
+
+```bash
+sha256sum --check --ignore-missing mcp-proxy_<version>_checksums.txt
+```
+
+The checksums themselves are signed, keyless — the certificate is bound to the
+workflow that built the release rather than to a key anyone holds. Both identity
+flags matter: without them `cosign` accepts a valid signature from any workflow
+on GitHub, which is not the question being asked.
+
+```bash
+cosign verify-blob \
+  --certificate mcp-proxy_<version>_checksums.txt.pem \
+  --signature   mcp-proxy_<version>_checksums.txt.sig \
+  --certificate-identity-regexp '^https://github.com/zerg-su/mcp-proxy/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  mcp-proxy_<version>_checksums.txt
+```
+
+**On macOS**, an archive downloaded through a browser is quarantined, and the
+binary inside it is not signed with an Apple Developer ID, so Gatekeeper refuses
+to run it — usually reported as the file being "damaged". Clear the attribute
+after verifying the checksum above, which is the stronger check anyway:
+
+```bash
+xattr -d com.apple.quarantine ./mcp-proxy
+```
+
+Downloading with `curl` instead of a browser sets no quarantine attribute at all.
+
 ### Docker
 
 The image includes support for launching MCP servers via `npx` and `uvx`.

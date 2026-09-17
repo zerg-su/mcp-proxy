@@ -113,16 +113,38 @@ Read this part before treating the fork as an audited artifact.
   to be.
 - Release tags use `v<upstream>-h<N>`, and the workflow triggers on nothing
   else, so upstream tags present in this fork cannot publish releases under its
-  name.
+  name. They are cut from `release`, which is a branch and not a moving alias
+  for the tip of development: a tagged commit has to stay fixed while a fix is
+  written for it, and the first release that needs a hotfix is the one that
+  discovers whether that is possible.
+- A release publishes binaries for every platform anything here targets —
+  linux, darwin and windows, amd64 and arm64 — plus a checksum file, a
+  CycloneDX SBOM per archive, and a signature. Windows archives are `.zip`;
+  Explorer cannot open a `.tar.gz` without a third-party archiver. All of it
+  cross-compiles on one linux runner, because nothing in this repository needs
+  CGO.
+- Released archives are signed, keyless, through Sigstore. There is no signing
+  key in this repository or in its secrets: the workflow exchanges its OIDC
+  token for a short-lived certificate, and what the signature then attests is
+  which repository, workflow and tag produced the bytes. Only the checksum file
+  is signed, because it names the SHA-256 of every archive — one signature and
+  one `sha256sum` verify any of them. `.goreleaser.yaml` carries the
+  `cosign verify-blob` invocation, including the two identity flags without
+  which cosign will accept a signature from any workflow on GitHub.
 
 ## Non-goals, with reasons
 
-- **No artifact signing or attestation.** Signing answers "was this artifact
-  substituted in transit", for a consumer who cannot check any other way.
-  Reproducible builds answer a stronger question — rebuild the tag and compare
-  bytes — and registry access control covers publication. Signing would start to
-  earn its keep when artifacts go to parties who can neither rebuild them nor
-  trust the registry they came from.
+- ~~**No artifact signing or attestation.**~~ Withdrawn, on the condition it
+  named itself: signing was to earn its keep once artifacts went to parties who
+  can neither rebuild them nor trust the registry they came from. That is now
+  the normal case. The standalone delivery path — a laptop with no container
+  runtime, on macOS or Windows — takes the gateway as a downloaded archive from
+  this fork's release page, never as an image from a registry anyone controls,
+  and the person unpacking it is not going to reproduce a Go build to check it.
+  The reasoning about reproducibility still holds and is unchanged; it simply
+  answers a question that consumer cannot ask. Note what is still *not* claimed:
+  a signature says these bytes came from this workflow at this tag, and nothing
+  whatsoever about whether the workflow was fed good source.
 - **No image publishing workflow.** Images are built and published from an
   operator's machine by `scripts/build-push.sh`, which takes the registry from
   the environment, refuses to publish from a dirty tree, and hands the version
@@ -288,8 +310,31 @@ itself, for both halves. It does need `govulncheck` installed, and a clean `vend
 and `go.sum` — it cannot tell your uncommitted edit from a tampered dependency,
 and says so rather than guessing.
 
-CI runs all four on every push to `master` and `hardening*`, on pull requests,
-and again before a release publishes anything.
+CI runs all four on every push to `master`, `hardening*` and `release`, on pull
+requests, and again before a release publishes anything. `release` is listed by
+name because it does not match `hardening*`, and a release branch that ran no
+checks would be the one branch where nothing is verified until a tag has already
+been cut.
+
+### Cutting a release
+
+    git checkout release
+    git merge --ff-only hardening-supply-chain   # or cherry-pick, for a hotfix
+    git push origin release                      # wait for Checks to go green
+    git tag -a v<upstream>-h<N> -m '<what this release is>'
+    git push origin v<upstream>-h<N>
+
+The tag is what publishes; pushing the branch does not. Keep the merge
+fast-forward so that the released commit exists on the development branch too —
+a release branch that has diverged is a release nobody can reproduce from the
+tree they work in. A hotfix is the exception and is cherry-picked back
+immediately, not left for later.
+
+Nothing here signs or scans anything on your machine: the workflow installs
+syft and cosign itself, and signing needs the runner's OIDC identity, which
+exists only inside GitHub Actions. To rehearse the artifact set locally,
+
+    goreleaser release --snapshot --clean --skip=sbom,sign,publish
 
 Keep this repository free of identifiers belonging to whoever operates it —
 registry hosts, account numbers, internal service or team names. Operational
