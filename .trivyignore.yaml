@@ -1,40 +1,59 @@
-# Findings accepted for the image, each with a reason and a date it stops being
-# accepted. An entry that expires makes the scan fail again, which is the point:
-# an exception should have to be re-argued, not inherited.
+# Findings accepted for the image, each scoped to the exact file it was found
+# in, with a reason and a date it stops being accepted. An entry that expires
+# makes the scan fail again, which is the point: an exception should have to be
+# re-argued, not inherited.
 #
-# Nothing here may be added for "the fix is inconvenient". The bar is that the
-# fix is not ours to apply - every entry below is a dependency bundled inside
-# npm, which arrives with the Node base image and cannot be patched from this
-# repository without shipping a different npm than the one Node publishes.
-# They reach the image because it can launch `npx` downstream servers; an image
-# built for remote-HTTP downstreams only would not contain any of them.
+# `paths` is not decoration. Without it an entry suppresses its CVE everywhere
+# in the image, so the same vulnerability arriving later in a different
+# component - a downstream MCP server's own bundled copy of node-tar, say -
+# would be silently accepted by an exception written about npm. Scoped this way,
+# each entry excuses one file and nothing else.
 #
-# Re-check by refreshing the base image pins first
-# (scripts/refresh-base-digests.sh) and re-running scripts/scan-image.sh: if a
-# newer node:lts-bookworm-slim carries a newer npm, these disappear on their own
-# and the entries should be deleted rather than extended.
+# The bar for adding an entry is that the fix is not ours to apply, and that has
+# to be demonstrated rather than assumed. For all four below: they are
+# dependencies bundled *inside* npm, which arrives with the Node base image.
+# Measured, not supposed:
+#
+#   - npm 12.0.2, the current latest, still bundles brace-expansion 5.0.7
+#     (needs >= 5.0.9), ip-address 10.2.0 (needs 10.3.1) and tar 7.5.19
+#     (needs 7.5.21). Installing it into the image changes none of the four
+#     findings, so "upgrade npm" is not an available fix today.
+#   - They cannot be replaced in place either: npm's own package.json declares
+#     workspaces (`docs`, `smoke-tests`, `workspaces/*`) that are not published,
+#     so `npm install` inside its directory fails with E404 on @npmcli/docs
+#     before it can touch anything.
+#
+# Re-check by refreshing the base image pins (scripts/refresh-base-digests.sh)
+# and re-running scripts/scan-image.sh, which reports any exception that is no
+# longer load-bearing. When a newer Node image carries an npm with these fixed,
+# delete the entries rather than extending the dates.
 vulnerabilities:
   - id: CVE-2026-14257
+    paths:
+      - usr/local/lib/node_modules/npm/node_modules/brace-expansion/package.json
     statement: >-
-      brace-expansion, bundled in npm's own node_modules. Denial of service via
-      unbounded intermediate arrays, reachable only by whatever npm itself
-      expands while installing a downstream server. Fixed upstream in the
-      package; not fixed in the npm that Node ships.
+      brace-expansion bundled in npm. Denial of service via unbounded
+      intermediate arrays, reachable only through whatever npm itself expands
+      while installing a package. Not fixed in any published npm.
     expired_at: 2026-12-17
   - id: CVE-2026-69152
+    paths:
+      - usr/local/lib/node_modules/npm/node_modules/brace-expansion/package.json
     statement: >-
       brace-expansion again, the bypass of the CVE-2026-14257 mitigation. Same
-      package, same reachability, same reason it cannot be fixed here.
+      file, same reachability, same reason it cannot be fixed here.
     expired_at: 2026-12-17
   - id: CVE-2026-69192
+    paths:
+      - usr/local/lib/node_modules/npm/node_modules/ip-address/package.json
     statement: >-
-      ip-address, bundled in npm's node_modules. Inconsistent IP parsing leading
-      to SSRF in code paths npm uses to reach a registry that this deployment
-      already chooses.
+      ip-address bundled in npm. Inconsistent IP parsing leading to SSRF, in the
+      code path npm uses to reach a registry this deployment has already chosen.
     expired_at: 2026-12-17
   - id: CVE-2026-73566
+    paths:
+      - usr/local/lib/node_modules/npm/node_modules/tar/package.json
     statement: >-
-      node-tar, bundled in npm's node_modules. Denial of service from a crafted
-      long-path archive, i.e. from a package tarball npm is already being asked
-      to install.
+      node-tar bundled in npm. Denial of service from a crafted long-path
+      archive, i.e. from a package tarball npm is already being asked to install.
     expired_at: 2026-12-17

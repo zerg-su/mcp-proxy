@@ -83,8 +83,42 @@ docker run -d \
   --tmpfs /tmp:uid=10001,gid=10001,mode=1777,exec \
   --security-opt no-new-privileges \
   --cap-drop ALL \
-  <your-registry>/mcp-proxy:<tag>
+  <your-registry>/mcp-proxy@sha256:<digest> \
+  --config /config/config.json \
+  -require-auth -require-tool-allowlist -stdio-clean-env -expand-env=false
 ```
+
+The same thing as compose:
+
+```yaml
+services:
+  app:
+    image: <your-registry>/mcp-proxy@sha256:<digest>
+    command:
+      - --config=/config/config.json
+      - -require-auth
+      - -require-tool-allowlist
+      - -stdio-clean-env
+      - -expand-env=false
+    volumes:
+      - ./config.json:/config/config.json:ro
+    ports: ["9090:9090"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /home/mcp:uid=10001,gid=10001,mode=0700,exec
+      - /tmp:uid=10001,gid=10001,mode=1777,exec
+    restart: always
+```
+
+**The four flags are the deployment, not the binary.** Every one of them is off
+by default, because each breaks a setup that is legitimate somewhere: an
+unauthenticated route on a laptop, a downstream that needs an inherited
+variable, a config written before tool filters existed, `${VAR}` expansion in a
+config file. A pipeline that omits them gets upstream's behaviour, and the code
+containing the flags protects nothing. Put them in the deployment template, not
+in a runbook step someone performs.
 
 - **`exec` on the tmpfs is not optional if any downstream server is fetched at
   run time.** Docker mounts `--tmpfs` `noexec` by default, `npx` and `uvx` write

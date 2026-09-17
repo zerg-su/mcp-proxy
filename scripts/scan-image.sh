@@ -70,6 +70,31 @@ if [ "${MODE}" = "--sbom-only" ]; then
     exit 0
 fi
 
+# An exception that is no longer needed is worse than no exception: it stays in
+# the file, keeps looking deliberate, and silently covers the day the same CVE
+# arrives somewhere else. Trivy does not report unused ignore rules, so the scan
+# is run once more without the ignore file and the two id sets are compared.
+# This reports; it does not fail. A stale entry is cleanup, not a vulnerability -
+# what forces the entries to be revisited is the expiry date inside them, which
+# trivy does enforce.
+echo "==> exceptions"
+run_trivy image --input /work/image.tar \
+    --severity HIGH,CRITICAL \
+    --ignore-unfixed \
+    --scanners vuln \
+    --format json --output /work/unfiltered.json --quiet
+PRESENT="$(grep -oE '"VulnerabilityID": *"[^"]+"' "${WORK}/unfiltered.json" | cut -d'"' -f4 | sort -u || true)"
+# The ignore file is this repository's own, so its shape is known; parsing it
+# with grep avoids making a YAML library a prerequisite for scanning an image.
+while read -r id; do
+    [ -n "${id}" ] || continue
+    if printf '%s\n' "${PRESENT}" | grep -qx "${id}"; then
+        echo "    still needed: ${id}"
+    else
+        echo "    STALE: ${id} is accepted in .trivyignore.yaml but no longer found - delete the entry"
+    fi
+done <<< "$(grep -oE '^  - id: *[A-Za-z0-9.-]+' .trivyignore.yaml | awk '{print $3}')"
+
 echo "==> scan (HIGH,CRITICAL, fixed only)"
 # --exit-code 1 is what makes this a gate rather than a report. Without it
 # trivy prints findings and exits 0, which is the failure mode where everyone
