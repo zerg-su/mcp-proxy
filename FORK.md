@@ -67,6 +67,12 @@ Read this part before treating the fork as an audited artifact.
   covers the toolchain version, `-trimpath`, the goreleaser flag list, the
   Dockerfile's digest pins and non-root runtime, and byte-identical rebuilds.
   The release workflow runs it before publishing.
+- `golang.org/x/text` is held at a fixed version rather than at whatever
+  upstream's go.mod resolves to. The v1.1.0 review recorded GO-2026-5970 in
+  v0.14.0 as unreachable and upstream's to bump; "unreachable" is a statement
+  about today's call graph, and this repository vendors the code either way, so
+  it is bumped here. Expect this to be one of the conflicts at the next rebase,
+  resolved by taking whichever version is higher.
 - The dependencies are gated too, not only the way they are compiled.
   `make verify-vendor` re-materialises `vendor/` and diffs it against what is
   committed — the only check here that notices a tampered dependency, since
