@@ -10,14 +10,16 @@
 # image: Debian, Node, npm's own bundled dependencies, Python, uv, git.
 # Measured, not assumed: the first scan of this image reported 21 fixable
 # HIGH/CRITICAL Debian findings and 4 in npm's bundled modules, none of which
-# any Go tool had ever mentioned.
+# any Go tool had ever mentioned. Both sets were fixed rather than accepted -
+# apt-get upgrade and a pinned npm - and the image currently scans clean.
 #
 # The gate is "HIGH or CRITICAL, and a fixed version exists". Findings with no
 # available fix are excluded on purpose: a gate that fails on something nobody
 # can act on is a gate that gets switched off, and the pinned bases mean
-# exposure does not drift between refreshes anyway. Specific accepted findings
-# live in .trivyignore.yaml with a reason and an expiry date, so an exception
-# has to be re-argued rather than forgotten.
+# exposure does not drift between refreshes anyway. Anything else that has to be
+# accepted goes in .trivyignore.yaml, scoped to one file, with a reason and an
+# expiry date; that file is currently empty and explains what it takes to add
+# an entry.
 #
 # Trivy runs from a digest-pinned image and reads the image through a tar
 # export, so nothing here needs the docker socket inside a container.

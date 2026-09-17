@@ -46,6 +46,25 @@ RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
     ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx && \
     ln -s /usr/local/bin/node /usr/local/bin/nodejs
 
+# npm carries its dependencies vendored inside itself, and the copy the Node
+# image ships (11.19.0) holds four fixable HIGH findings in them:
+# brace-expansion twice, ip-address, node-tar. They are files inside npm, not
+# installed packages, so the only fix is a different npm.
+#
+# 11.19.1 is that npm, and the version matters more than "newer" does: 12.0.2,
+# the current `latest`, still bundles brace-expansion 5.0.7, ip-address 10.2.0
+# and tar 7.5.19 - all vulnerable - while the 11.x patch has 5.0.9, 10.5.0 and
+# 7.5.22. Verified by installing each into this image and reading the versions
+# out of node_modules. Upgrading to `latest` here would have changed nothing.
+#
+# Pinned exactly, for the reason the deployment docs give for pinning downstream
+# MCP servers: it would be odd to demand that of a config while fetching
+# whatever a range resolves to at build time. The scan is what says when to bump
+# it.
+ARG NPM_VERSION=11.19.1
+RUN npm install -g "npm@${NPM_VERSION}" \
+ && npm --version
+
 # The upgrade is not decoration: scanning this image before it was added
 # reported 21 fixable HIGH/CRITICAL findings, all Debian, in openssl/libssl3,
 # libgnutls30, libpcre2 and libcap2 - the packages that terminate TLS and parse

@@ -107,9 +107,10 @@ Read this part before treating the fork as an audited artifact.
   has a fix available, anywhere in the image — Debian, Node, npm's own bundled
   modules, Python, the Go binary. That is the half of the supply chain no Go
   tool sees: the first scan reported 21 fixable Debian findings and 4 in npm's
-  bundled modules. The Debian ones are gone (see the `apt-get upgrade` note
-  below); the npm ones are accepted by name, with a reason and an expiry date,
-  in `.trivyignore.yaml`.
+  bundled modules, and the image now has none of them — `apt-get upgrade` for
+  the Debian side, a pinned npm 11.19.1 for the other. Nothing is excused:
+  `.trivyignore.yaml` is empty, and carries the rules for the day something has
+  to be.
 - Release tags use `v<upstream>-h<N>`, and the workflow triggers on nothing
   else, so upstream tags present in this fork cannot publish releases under its
   name.
