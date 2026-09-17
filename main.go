@@ -18,6 +18,8 @@ func main() {
 	authorize := flag.String("authorize", "", "run a one-time interactive OAuth authorization for the named mcpServers entry, then exit. Opens a browser; run this by hand, not from the daemon/service.")
 	checkConfig := flag.Bool("check-config", false, "load and validate the config, then exit without starting the server")
 	requireAuth := flag.Bool("require-auth", false, "refuse to start, or to report a config OK, when any enabled server would be served with no authTokens in front of it. Off by default: an unauthenticated route is a valid local setup. Turn it on wherever the proxy is reachable by anything other than you.")
+	stdioCleanEnv := flag.Bool("stdio-clean-env", false, "start stdio downstream servers with only the variables named by -stdio-env-passthrough plus their own configured env, instead of inheriting this process's entire environment. Off by default, because turning it on breaks any downstream that relied on an inherited variable.")
+	stdioEnvPassthrough := flag.String("stdio-env-passthrough", "PATH,HOME", "comma-separated variables copied from this process to stdio children when -stdio-clean-env is set. The defaults are what a child needs to find and run anything; add names (SSL_CERT_FILE, NO_PROXY, SystemRoot on Windows) rather than removing these.")
 	authStatus := flag.Bool("auth-status", false, "list every configured MCP server with its transport and authentication state, then exit. Local-only: reads config.json and cached OAuth token expiry, makes no network calls.")
 	doctor := flag.Bool("doctor", false, "like -auth-status, but also connects to each remote server to confirm its credentials are accepted right now (may refresh an expired OAuth token via its refresh token; never opens a browser)")
 	var logLevel slog.Level
@@ -35,6 +37,13 @@ func main() {
 		return
 	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel})))
+	// Set before any mode that can spawn a stdio child, and logged when it is
+	// on: "the child cannot see that variable" is the first thing to check when
+	// a downstream that worked yesterday stops finding its credentials.
+	stdioEnv = newStdioEnvPolicy(*stdioCleanEnv, *stdioEnvPassthrough)
+	if stdioEnv.clean {
+		slog.Info("Stdio children start from a clean environment", "passthrough", stdioEnv.passthrough)
+	}
 	if *authorize != "" {
 		if err := runAuthorize(*conf, *authorize, *insecure, *expandEnv, *httpHeaders, *httpTimeout); err != nil {
 			slog.Error("Failed to authorize server", "server", *authorize, "err", redactURLCredentials(err))

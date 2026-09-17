@@ -13,6 +13,10 @@
 -check-config          load and validate the config, then exit
 -require-auth          refuse to start, or to report a config OK, when any
                         enabled server would be served with no authTokens
+-stdio-clean-env       give stdio servers only the passthrough variables and
+                        their own configured env, not this process's environment
+-stdio-env-passthrough comma-separated variables copied to stdio children when
+                        -stdio-clean-env is set (default "PATH,HOME")
 -log-level value       log level: debug, info, warn, or error (default info)
 -version               print version and exit
 -help                  print help and exit
@@ -57,6 +61,44 @@ default declared once satisfies it. Servers with `"disabled": true` are ignored,
 because they mount no route. Passing it to the running daemon as well as to the
 validation step is the point: a config that loses its tokens later then fails to
 start instead of coming back up open.
+
+### Isolating what stdio servers inherit
+
+By default a stdio downstream is started with the proxy's entire environment
+plus its own `env` entries. On a laptop that is convenient. On a CI runner the
+environment is where the credentials are, so every third-party MCP server in the
+config — including one whose job is to read somebody else's web page — can read
+the cloud keys, the registry password and the deploy token.
+
+`-stdio-clean-env` replaces that with an environment built from nothing:
+
+```bash
+mcp-proxy -config config.json -stdio-clean-env
+# level=INFO msg="Stdio children start from a clean environment" passthrough="[PATH HOME]"
+```
+
+A child then sees exactly two things: the variables named by
+`-stdio-env-passthrough` (default `PATH,HOME`, both needed for a child to find
+and run anything, and for `npx`/`uvx` caches), and whatever that server declares
+in its own `mcpServers.<name>.env`. Anything a downstream legitimately needs is
+therefore declared per server, where it can be reviewed:
+
+```json
+"github": {
+  "command": "npx",
+  "args": ["-y", "@vendor/mcp-server@1.4.2"],
+  "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN_FOR_MCP}"}
+}
+```
+
+A variable set in a server's `env` overrides an inherited one of the same name.
+Names in the passthrough list that are not set in the proxy's environment are
+skipped rather than exported empty. Add to the list rather than replacing it —
+`SSL_CERT_FILE` behind a TLS-inspecting proxy, `NO_PROXY`, `SystemRoot` on
+Windows — since a child with no `PATH` cannot execute anything at all.
+
+The flag applies on reconnect too: a downstream that is respawned after a crash
+gets the same environment as the original.
 
 ## Endpoints
 

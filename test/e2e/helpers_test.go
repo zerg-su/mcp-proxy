@@ -207,8 +207,19 @@ func startProxy(t *testing.T, configPath, addr string) *proxy {
 func launchProxy(t *testing.T, configPath, addr string) *proxy {
 	t.Helper()
 
-	cmd := exec.Command(buildProxy(t), "-config", configPath)
+	return launchProxyWith(t, configPath, addr, nil)
+}
+
+// launchProxyWith is launchProxy with control over the proxy process's own
+// environment and over the flags it runs with. Both are needed to test what a
+// stdio child inherits: that is a property of the parent process, and no config
+// file can express it.
+func launchProxyWith(t *testing.T, configPath, addr string, extraEnv []string, extraArgs ...string) *proxy {
+	t.Helper()
+
+	cmd := exec.Command(buildProxy(t), append([]string{"-config", configPath}, extraArgs...)...)
 	cmd.Env = append(os.Environ(), "MCP_PROXY_TEST_TOKEN="+testAuthToken)
+	cmd.Env = append(cmd.Env, extraEnv...)
 	stderr := &syncBuffer{}
 	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {

@@ -152,7 +152,12 @@ func (c *Client) buildRawClient() (*client.Client, error) {
 		for kk, vv := range v.Env {
 			envs = append(envs, fmt.Sprintf("%s=%s", kk, vv))
 		}
-		raw, err := client.NewStdioMCPClient(v.Command, envs, v.Args...)
+		// stdioClientOptions is empty unless -stdio-clean-env is set, in which
+		// case it supplies the command factory that decides what this child
+		// inherits. It is consulted here rather than at startup because
+		// buildRawClient also runs on every reconnect, and a respawned child
+		// must get the same environment as the original.
+		raw, err := client.NewStdioMCPClientWithOptions(v.Command, envs, v.Args, stdioClientOptions()...)
 		if err != nil {
 			return nil, err
 		}

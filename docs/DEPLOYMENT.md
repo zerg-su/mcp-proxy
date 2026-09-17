@@ -124,11 +124,16 @@ this thing spawns are third-party programs with their own dependency trees.
   resources and prompts are always exposed.
 - **Keep credentials out of the config file.** The examples put tokens in `env`
   and `url` because they have to show something. Render them from your secret
-  store at deploy time and mount the result read-only. Note also that a stdio
-  child inherits the proxy's entire environment (upstream `mcp-go` behaviour),
-  so putting secrets in the proxy's own environment hands all of them to every
-  downstream server it spawns; with `-expand-env=false` and a rendered file,
-  neither happens. Use a separate, least-privileged credential per downstream.
+  store at deploy time and mount the result read-only. Use a separate,
+  least-privileged credential per downstream.
+- **Run with `-stdio-clean-env` anywhere the proxy's own environment holds
+  secrets**, which on a CI runner it does by definition. Without it a stdio
+  child inherits everything the proxy can see, so the cloud keys, the registry
+  password and the deploy token reach every third-party MCP server in the
+  config. With it, a child gets `PATH`, `HOME` and its own `mcpServers.<name>.env`
+  — so what a downstream may read becomes a reviewable line in the config rather
+  than a property of whatever the pipeline happened to export. See
+  [USAGE.md](USAGE.md).
 - **Do not mix trust levels in one proxy.** One proxy aggregates every
   configured server's tools into a single surface, and a downstream that reads
   attacker-influenced content can return text that a model will act on. A server

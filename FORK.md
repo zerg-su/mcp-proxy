@@ -34,13 +34,19 @@ Read this part before treating the fork as an audited artifact.
 - **The MCP servers this proxy spawns are out of scope.** They are third-party
   programs with their own dependency trees, and nothing here vouches for them.
   The proxy is a transport; auditing it says nothing about what it transports.
-- **A stdio child inherits the whole environment of the proxy process.** That is
-  upstream `mcp-go` behaviour (`cmd.Env = append(os.Environ(), ...)`) and it is
-  a reasonable default for the usual one-user, few-servers deployment. It stops
-  being reasonable when one proxy process holds credentials for many servers,
-  because every child then sees all of them. If that is your topology, do not
-  put secrets in the proxy's environment: render them into the config file
-  instead and run with `-expand-env=false`.
+- **A stdio child inherits the whole environment of the proxy process, unless
+  you say otherwise.** That is upstream `mcp-go` behaviour
+  (`cmd.Env = append(os.Environ(), ...)`) and it is a reasonable default for the
+  usual one-user, few-servers deployment. It stops being reasonable when one
+  proxy process holds credentials for many servers, because every child then
+  sees all of them — and it stops being avoidable by care alone on a CI runner,
+  where the environment is where the credentials are. `-stdio-clean-env` builds
+  the child's environment instead of inheriting it: the variables named by
+  `-stdio-env-passthrough` plus that server's own `env`, nothing else. It is off
+  by default, because turning it on breaks any downstream that quietly relied on
+  an inherited variable, and that is the operator's call to make. The older
+  advice still applies underneath it: render secrets into the config file and
+  run with `-expand-env=false`.
 - **`-expand-env` defaults to true, and the config can be an http(s) URL.** In
   combination these are an environment-exfiltration primitive: a fetched config
   is expanded against the proxy's environment, so a hostile config server can
