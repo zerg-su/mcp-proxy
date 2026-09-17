@@ -102,6 +102,14 @@ Read this part before treating the fork as an audited artifact.
   second apart, which resolve a moving tag identically, and nothing else here
   ever runs the image. `scripts/refresh-base-digests.sh` keeps the pins from
   rotting.
+- The image itself is scanned before it is published, and ships an SBOM.
+  `scripts/scan-image.sh` fails the publish on a HIGH or CRITICAL finding that
+  has a fix available, anywhere in the image — Debian, Node, npm's own bundled
+  modules, Python, the Go binary. That is the half of the supply chain no Go
+  tool sees: the first scan reported 21 fixable Debian findings and 4 in npm's
+  bundled modules. The Debian ones are gone (see the `apt-get upgrade` note
+  below); the npm ones are accepted by name, with a reason and an expiry date,
+  in `.trivyignore.yaml`.
 - Release tags use `v<upstream>-h<N>`, and the workflow triggers on nothing
   else, so upstream tags present in this fork cannot publish releases under its
   name.
@@ -120,17 +128,19 @@ Read this part before treating the fork as an audited artifact.
   stamp to the build. Upstream's `docker.yml` was removed: it ran a third-party
   action pinned to a branch, which is arbitrary future code holding a token with
   write access to packages.
-- **No container image scan, and no SBOM.** This one is a gap, not a decision
-  that the question does not matter. `govulncheck` covers the Go code and the
-  standard library it is compiled against — that is the whole binary, since it
-  is statically linked — and covers nothing else in the image: Debian packages,
-  Node, npm, uv and Python are all unscanned, and so is every downstream MCP
-  server fetched at run time. Closing it properly means a scanner in the
-  publishing path *and* a policy for the case that makes scanners get switched
-  off, a HIGH with no fixed version available in the pinned base. Pinning by
-  digest is what makes that policy possible to hold — exposure stops moving
-  between refreshes — so this is the next thing to add here, not something
-  ruled out.
+- **No second source-dependency scanner** (osv-scanner, and similar). It looked
+  worth adding until the image scan landed: trivy reads the compiled binary's
+  module list and reports vulnerable dependencies whether or not anything calls
+  them — it found x/text v0.14.0 in an image while govulncheck, correctly,
+  reported nothing reachable. So the coverage a second scanner was wanted for
+  already exists, from a tool that also covers everything govulncheck cannot
+  see. A third database would mean a third failure mode for the same answer.
+- **No image scan in CI, only on the publishing path.** A scan fails when
+  someone else discloses a vulnerability, not when this repository changes, so a
+  scan on every pull request would turn unrelated work red on a schedule nobody
+  here controls. Blocking a *release* on the same finding is correct, because a
+  release is when those bytes start being shipped. `scripts/scan-image.sh` runs
+  on demand for everything in between.
 - **The image still carries Node, npm, uv, Python and git.** A deployment whose
   downstreams are all remote HTTP needs none of them, and one that spawns two
   known stdio servers would be better served by an image with exactly those two
@@ -239,6 +249,15 @@ upstream pull requests.
   The first such command needs the network; after it, the toolchain is in the
   module cache and the offline build works as before. `make verify-vuln` sets
   `GOTOOLCHAIN` deliberately, for a different reason: see the Makefile.
+- **`apt-get upgrade` in an image whose bases are pinned by digest.** These look
+  contradictory and are not. The digests pin which Debian the image starts from,
+  so two builds of one commit start identically; they cannot pin what Debian has
+  since fixed inside it, and the scan measured what that costs — 21 fixable
+  HIGH/CRITICAL findings, in openssl, gnutls, pcre2 and libcap. The layer is
+  therefore current rather than frozen, which was already true of the
+  `apt-get install` next to it, since package versions were never pinned. The
+  price is about 13 MB compressed and a layer that differs between builds months
+  apart.
 - **No `go mod download` in the Dockerfile.** Dependencies are vendored, so that
   layer only fetched modules the compiler never reads, turning an offline build
   into a networked one.

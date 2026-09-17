@@ -30,13 +30,17 @@ BUILD_ONLY=0
 # not a manifest list, so a two-platform build fails there. Narrow to this
 # machine's own architecture instead of failing: a local build exists to be run
 # here.
+host_platform() {
+    case "$(uname -m)" in
+        x86_64|amd64)  echo linux/amd64 ;;
+        arm64|aarch64) echo linux/arm64 ;;
+        *) echo "cannot map $(uname -m) to a docker platform; set PLATFORM" >&2; return 1 ;;
+    esac
+}
+
 case "${BUILD_ONLY}:${PLATFORM}" in
     1:*,*)
-        case "$(uname -m)" in
-            x86_64|amd64)  PLATFORM=linux/amd64 ;;
-            arm64|aarch64) PLATFORM=linux/arm64 ;;
-            *) echo "cannot map $(uname -m) to a docker platform; set PLATFORM" >&2; exit 1 ;;
-        esac
+        PLATFORM="$(host_platform)"
         echo "==> --build-only: loading ${PLATFORM} only, the local daemon holds no manifest list" >&2
         ;;
 esac
@@ -147,13 +151,47 @@ BUILD_ARGS=(
     --file Dockerfile
     .
 )
+
 if [ "${BUILD_ONLY}" -eq 1 ]; then
-    BUILD_ARGS+=(--load)
-else
-    BUILD_ARGS+=(--push)
+    docker "${BUILD_ARGS[@]}" --load
+    echo "==> done: ${IMAGE}"
+    echo "    the binary inside reports this same string as its -version"
+    echo "    not scanned: run scripts/scan-image.sh ${IMAGE} to check it"
+    exit 0
 fi
 
-docker "${BUILD_ARGS[@]}"
+# Scanning has to happen before the push, and a scanner needs an image that
+# exists somewhere. A --push build leaves nothing behind locally, so this
+# machine's own architecture is built and loaded first, scanned, and only then
+# is the manifest list published - from the same context, so buildx reuses every
+# layer and the second build is an export rather than a rebuild.
+#
+# One architecture is scanned, not both. The packages come from the same Debian
+# suite and the same base digests either way, so the finding set is the same;
+# what differs is machine code, which is not what a package scanner reads.
+SCAN_PLATFORM="$(host_platform)"
+echo "==> building ${SCAN_PLATFORM} locally to scan it"
+docker buildx build \
+    --platform "${SCAN_PLATFORM}" \
+    --build-arg "BUILD_VERSION=${IMAGE_TAG}" \
+    --tag "${IMAGE}" \
+    --file Dockerfile \
+    --load \
+    .
+
+"$(dirname "$0")/scan-image.sh" "${IMAGE}"
+
+docker "${BUILD_ARGS[@]}" --push --metadata-file "${WORK_META:=$(mktemp)}"
+
+# The digest is printed because it is what a deployment should reference. A tag
+# says which build was meant; a digest says which bytes arrived, and the two
+# stop agreeing the moment anyone republishes a tag.
+DIGEST="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("containerimage.digest",""))' "${WORK_META}" 2>/dev/null || true)"
+rm -f "${WORK_META}"
 
 echo "==> done: ${IMAGE}"
 echo "    the binary inside reports this same string as its -version"
+if [ -n "${DIGEST}" ]; then
+    echo "    pin this in deployments, not the tag:"
+    echo "    ${REGISTRY}/${REPOSITORY}@${DIGEST}"
+fi

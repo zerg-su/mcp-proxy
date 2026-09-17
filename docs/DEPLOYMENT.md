@@ -105,6 +105,31 @@ docker run -d \
 - The proxy binds 9090, so it needs no capabilities at all, and it never
   escalates, so `no-new-privileges` costs nothing.
 
+## Pinning and scanning what you deploy
+
+`scripts/build-push.sh` scans the image before it publishes anything and refuses
+to publish on a HIGH or CRITICAL finding that has a fix available, anywhere in
+the image — Debian, Node, npm's bundled modules, Python, or the Go binary. It
+writes a CycloneDX SBOM to `build/sbom/` on the way, named after the tag; keep
+those wherever the pipeline keeps build artifacts, because they are what answers
+"which of our images contain this package" when the next advisory lands. Any
+image can be checked on demand:
+
+```bash
+scripts/scan-image.sh <registry>/tools/mcp-proxy:<tag>
+```
+
+Deploy by **digest**, not by tag. The publish script prints the digest it just
+pushed for exactly this:
+
+```yaml
+image: <registry>/tools/mcp-proxy@sha256:...
+```
+
+A tag records which build was intended; a digest records which bytes arrived,
+and the two stop agreeing the moment anyone republishes a tag. `:latest` is the
+version of this mistake that cannot even be traced afterwards.
+
 ## What the proxy cannot enforce for you
 
 The proxy is a transport. These are properties of the config it is handed, and

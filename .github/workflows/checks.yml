@@ -29,6 +29,13 @@ jobs:
   build:
     name: Build gates
     runs-on: ubuntu-latest
+    # Vendor mode is what happens anyway when vendor/ is present, which is
+    # exactly why it is stated here: if the directory ever went missing or
+    # incomplete, the default would quietly download the modules instead and
+    # this job would keep passing while testing something else. With the flag,
+    # that is an error.
+    env:
+      GOFLAGS: -mod=vendor
     steps:
       # Actions are pinned by commit, not by tag, for the reason spelled out in
       # goreleaser.yml: a tag is mutable, and a fork whose point is supply-chain

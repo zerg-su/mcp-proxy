@@ -46,7 +46,20 @@ RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
     ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx && \
     ln -s /usr/local/bin/node /usr/local/bin/nodejs
 
+# The upgrade is not decoration: scanning this image before it was added
+# reported 21 fixable HIGH/CRITICAL findings, all Debian, in openssl/libssl3,
+# libgnutls30, libpcre2 and libcap2 - the packages that terminate TLS and parse
+# input for everything in here. After it, zero. The base image digests pin which
+# Debian this starts from; they cannot pin what Debian has since fixed in it.
+#
+# It does mean this layer depends on the archive's contents on the day it runs,
+# so two builds of one commit months apart differ. That was already true of the
+# apt-get install below - package versions were never pinned - and the honest
+# reading is that the digest pins make the *base* reproducible while apt makes
+# the layer current. Pinning individual .deb versions here would trade the 21
+# findings back for a number that goes stale silently.
 RUN apt-get update \
+ && apt-get upgrade -y \
  && apt-get install -y --no-install-recommends git ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 

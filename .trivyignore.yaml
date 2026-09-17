@@ -1,0 +1,40 @@
+# Findings accepted for the image, each with a reason and a date it stops being
+# accepted. An entry that expires makes the scan fail again, which is the point:
+# an exception should have to be re-argued, not inherited.
+#
+# Nothing here may be added for "the fix is inconvenient". The bar is that the
+# fix is not ours to apply - every entry below is a dependency bundled inside
+# npm, which arrives with the Node base image and cannot be patched from this
+# repository without shipping a different npm than the one Node publishes.
+# They reach the image because it can launch `npx` downstream servers; an image
+# built for remote-HTTP downstreams only would not contain any of them.
+#
+# Re-check by refreshing the base image pins first
+# (scripts/refresh-base-digests.sh) and re-running scripts/scan-image.sh: if a
+# newer node:lts-bookworm-slim carries a newer npm, these disappear on their own
+# and the entries should be deleted rather than extended.
+vulnerabilities:
+  - id: CVE-2026-14257
+    statement: >-
+      brace-expansion, bundled in npm's own node_modules. Denial of service via
+      unbounded intermediate arrays, reachable only by whatever npm itself
+      expands while installing a downstream server. Fixed upstream in the
+      package; not fixed in the npm that Node ships.
+    expired_at: 2026-12-17
+  - id: CVE-2026-69152
+    statement: >-
+      brace-expansion again, the bypass of the CVE-2026-14257 mitigation. Same
+      package, same reachability, same reason it cannot be fixed here.
+    expired_at: 2026-12-17
+  - id: CVE-2026-69192
+    statement: >-
+      ip-address, bundled in npm's node_modules. Inconsistent IP parsing leading
+      to SSRF in code paths npm uses to reach a registry that this deployment
+      already chooses.
+    expired_at: 2026-12-17
+  - id: CVE-2026-73566
+    statement: >-
+      node-tar, bundled in npm's node_modules. Denial of service from a crafted
+      long-path archive, i.e. from a package tarball npm is already being asked
+      to install.
+    expired_at: 2026-12-17
