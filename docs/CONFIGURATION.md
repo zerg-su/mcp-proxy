@@ -186,10 +186,19 @@ fallback, so an existing registration keeps working.)
 - `toolFilter` (object): Selectively expose tools to the proxy:
   - `mode`: `allow` or `block`.
   - `list`: List of tool names.
-  - `mode: "allow"` exposes only the listed tools, so an empty (or omitted) `list`
-    exposes **no** tools. `mode: "block"` hides the listed tools, so an empty list
-    hides nothing. The filter applies to tools only — a downstream's resources and
-    prompts are always exposed.
+  - `mode: "allow"` with a non-empty `list` exposes only the listed tools.
+    `mode: "block"` hides the listed tools, so an empty list hides nothing.
+  - **An empty or omitted `list` exposes every tool, in either mode** — including
+    `mode: "allow"`, which reads as the opposite. A filter only takes effect when
+    it has something in its list; an unrecognised `mode` also filters nothing.
+    Both cases log a `WARN` at startup naming the server. This is deliberate
+    (`TestToolFilterFuncPreservesCompatibility` pins it, so that an upgrade
+    cannot start hiding tools a deployment relies on) and it is the trap to know
+    about: `{"mode": "allow", "list": []}` publishes the downstream's entire tool
+    set. Verified against a running proxy, not inferred: a server configured that
+    way served all eight tools of the test fixture.
+  - The filter applies to tools only — a downstream's resources and prompts are
+    always exposed.
 - `Disabled` (bool): Enable or disable this server. Disabled servers are skipped at startup.
 - `autoReconnect` (bool, default `false`): Keep a downstream connection alive across
   failures. When true, a server that is unreachable at startup is retried every
@@ -210,11 +219,15 @@ fallback, so an existing registration keeps working.)
 Notes:
 
 - `mcpProxy.options.authTokens` serves as the default token set if a server omits `options.authTokens`.
-- `mcpProxy.options.toolFilter` likewise serves as the default filter if a server omits
-  `options.toolFilter`. The other `mcpProxy.options` values (`panicIfInvalid`, `logEnabled`,
-  `pingInterval`, `autoReconnect`, `reconnectInterval`) are defaults for servers that omit
-  them, so a fleet-wide setting can be declared once. `disabled` is per-server only and is
-  not inherited.
+- **`mcpProxy.options.toolFilter` is NOT inherited.** A server that omits
+  `options.toolFilter` is unfiltered, whatever the proxy-level filter says — declaring one
+  fleet-wide restricts nothing at all, and nothing warns about it. Verified against a running
+  proxy: with `mcpProxy.options.toolFilter` set to `{"mode": "allow", "list": ["echo"]}`, a
+  server with no filter of its own served all eight tools of the test fixture.
+  `TestGlobalToolFilterIsNotInherited` pins this behaviour. Give every server its own filter.
+- The other `mcpProxy.options` values (`panicIfInvalid`, `logEnabled`, `pingInterval`,
+  `autoReconnect`, `reconnectInterval`) *are* defaults for servers that omit them, so those
+  can be declared fleet-wide once. `disabled` is per-server only and is not inherited.
 - An empty `authTokens` array is rejected at startup, at either level. Omitting the key (or
   writing `null`) means "inherit the proxy's tokens", but `[]` is a third state that inherits
   nothing and attaches no authentication, leaving the route open while the config reads as

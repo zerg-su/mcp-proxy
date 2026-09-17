@@ -118,10 +118,16 @@ this thing spawns are third-party programs with their own dependency trees.
   (`mcp-server-fetch@2026.8.18`). Pinning the image while leaving these floating
   pins the wrapper and not the payload. Installing the servers into an image at
   build time is stronger still, and lets the runtime keep `noexec`.
-- **Prefer `toolFilter` in `allow` mode.** In `block` mode, a tool added by a
-  downstream update is exposed the moment it appears; in `allow` mode it is not
-  exposed until someone adds it to the list. The filter applies to tools only —
-  resources and prompts are always exposed.
+- **Prefer `toolFilter` in `allow` mode, per server, with a non-empty list.** In
+  `block` mode, a tool added by a downstream update is exposed the moment it
+  appears; in `allow` mode it is not exposed until someone adds it to the list.
+  Two things make this easy to get wrong, both verified against a running proxy:
+  an `allow` filter with an **empty list exposes every tool**, and a filter set
+  on `mcpProxy.options` is **not inherited** by servers that omit their own. A
+  config can therefore look restricted and restrict nothing. `-require-auth`'s
+  sibling `-require-tool-allowlist` rejects exactly those states; see
+  [USAGE.md](USAGE.md). The filter applies to tools only — resources and prompts
+  are always exposed.
 - **Keep credentials out of the config file.** The examples put tokens in `env`
   and `url` because they have to show something. Render them from your secret
   store at deploy time and mount the result read-only. Use a separate,
