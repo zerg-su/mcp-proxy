@@ -119,18 +119,29 @@ Read this part before treating the fork as an audited artifact.
   discovers whether that is possible.
 - A release publishes binaries for every platform anything here targets —
   linux, darwin and windows, amd64 and arm64 — plus a checksum file, a
-  CycloneDX SBOM per archive, and a signature. Windows archives are `.zip`;
-  Explorer cannot open a `.tar.gz` without a third-party archiver. All of it
-  cross-compiles on one linux runner, because nothing in this repository needs
-  CGO.
+  CycloneDX SBOM per archive, and one Sigstore bundle over the checksums.
+  Windows archives are `.zip`; Explorer cannot open a `.tar.gz` without a
+  third-party archiver. All of it cross-compiles on one linux runner, because
+  nothing in this repository needs CGO.
 - Released archives are signed, keyless, through Sigstore. There is no signing
   key in this repository or in its secrets: the workflow exchanges its OIDC
   token for a short-lived certificate, and what the signature then attests is
   which repository, workflow and tag produced the bytes. Only the checksum file
   is signed, because it names the SHA-256 of every archive — one signature and
   one `sha256sum` verify any of them. `.goreleaser.yaml` carries the
-  `cosign verify-blob` invocation, including the two identity flags without
-  which cosign will accept a signature from any workflow on GitHub.
+  `cosign verify-blob` invocation. Its identity flags are mandatory — cosign
+  refuses to verify a keyless signature without them — and the pattern is
+  anchored at both ends, because cosign matches it as a *substring*: an
+  unanchored prefix would also accept a certificate minted by any other workflow
+  in this repository holding `id-token: write`.
+- Every tool that touches a published artifact is named at its version:
+  goreleaser `2.18.2`, cosign `v3.0.6`, syft `v1.51.1`. The two installers had
+  in fact already pinned their tools — cosign-installer hardcodes its default,
+  sbom-action compiles syft into its bundle — so this buys legibility rather
+  than determinism: nothing previously recorded which cosign signed a release or
+  which syft catalogued it, and an action-SHA bump would have moved both in
+  silence. goreleaser's `~> v2` was the exception and was genuinely floating;
+  it decides archive names, which the verification commands hardcode.
 
 ## Non-goals, with reasons
 
@@ -314,7 +325,10 @@ CI runs all four on every push to `master`, `hardening*` and `release`, on pull
 requests, and again before a release publishes anything. `release` is listed by
 name because it does not match `hardening*`, and a release branch that ran no
 checks would be the one branch where nothing is verified until a tag has already
-been cut.
+been cut. A third job, `Release config`, validates the publishing config on the
+same commits — `goreleaser check` for its shape, and `scripts/verify-sign-flags.sh`
+for whether cosign still accepts the flags it is handed. Both exist because the
+release config previously got its first exercise from the tag that published it.
 
 ### Cutting a release
 
@@ -330,11 +344,36 @@ a release branch that has diverged is a release nobody can reproduce from the
 tree they work in. A hotfix is the exception and is cherry-picked back
 immediately, not left for later.
 
-Nothing here signs or scans anything on your machine: the workflow installs
-syft and cosign itself, and signing needs the runner's OIDC identity, which
-exists only inside GitHub Actions. To rehearse the artifact set locally,
+**Rehearse before tagging.** Run the `Goreleaser` workflow manually from the
+Actions tab — `workflow_dispatch` builds a snapshot that still signs, under the
+runner's real OIDC identity against the real Fulcio and Rekor, and publishes
+nothing. This is the only place the signing step can be exercised at all:
+keyless signing needs a runner identity, so no local command reaches it. Locally
+you can still check the artifact set and the config,
 
+    goreleaser check
     goreleaser release --snapshot --clean --skip=sbom,sign,publish
+    scripts/verify-sign-flags.sh
+
+the last of which is the gate that would have caught the failure below. The
+first two also run in CI on every commit, in the `Release config` job.
+
+**A pushed tag is spent, whether or not it published.** proxy.golang.org
+resolves a new tag within minutes and sum.golang.org records the result in an
+append-only log that has no delete — verified against the live database for
+`v1.1.0-h3`, which is on record as `e6dff4e` even though no release exists for
+it. Re-pointing such a tag at a fixed commit makes the two serve different trees
+forever, and Go reports the mismatch to whoever notices as a security error
+indistinguishable from a real attack. So a failed release becomes a **gap** in
+the `-h` counter, never a re-cut: delete nothing, bump the number, and say in
+the next tag's message what the gap was.
+
+> `v1.1.0-h3` is such a gap. Its run built all six archives and all six SBOMs,
+> completed the keyless signing ceremony, and then died writing the signature
+> out: the config passed cosign `--output-signature`/`--output-certificate`,
+> which cosign 3.x ignores in favour of `--bundle` rather than rejecting, so it
+> signed into an empty path. Nothing was published. `v1.1.0-h4` is the same tree
+> plus the fix.
 
 Keep this repository free of identifiers belonging to whoever operates it —
 registry hosts, account numbers, internal service or team names. Operational

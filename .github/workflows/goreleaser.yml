@@ -8,6 +8,15 @@ on:
       # pattern of "*" would publish releases of upstream versions under this
       # fork's name the first time tags are synced to the remote.
       - "v*-h*"
+  # The rehearsal. Everything on the publishing path except publication: a
+  # snapshot build that still runs the signing pipe, under this workflow's real
+  # OIDC identity, against the real Fulcio and Rekor. It exists because v1.1.0-h3
+  # spent a release number discovering a flag that cosign had started ignoring -
+  # a failure no local check could reach, because keyless signing needs a runner
+  # identity that does not exist on a laptop. This reaches it for free, and a
+  # spent tag number cannot be recovered: proxy.golang.org records the tag within
+  # minutes of the push and sum.golang.org is append-only.
+  workflow_dispatch:
 
 # The default token permissions are whatever the repository grants; a release
 # needs exactly these two, so it gets exactly those. id-token is what makes
@@ -67,21 +76,51 @@ jobs:
       # `sboms` and `signs` blocks in .goreleaser.yaml. Neither ships on the
       # runner image, and goreleaser only reports the missing binary once it has
       # already built every archive, so they are installed before it starts.
+      #
+      # Both versions are stated rather than defaulted. Neither was floating:
+      # cosign-installer hardcodes `cosign-release: v3.0.6` at the SHA pinned
+      # below, and sbom-action compiles syft v1.51.1 into its own bundle, so
+      # pinning each action by commit already pinned its tool. What was missing
+      # is the record - nothing in this repository said which cosign produced a
+      # signature or which syft produced an SBOM, and bumping an action SHA
+      # would have swapped both silently. Every other tool here is named at its
+      # version for exactly that reason. Re-read the installer's own
+      # bootstrap_version when bumping: while it equals the requested version,
+      # cosign arrives in one digest-checked download.
       -
         name: Install syft
         uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          syft-version: v1.51.1
       -
         name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.0.6
       -
         name: Run GoReleaser
         uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
         with:
           # either 'goreleaser' (default) or 'goreleaser-pro'
           distribution: goreleaser
-          # 'latest', 'nightly', or a semver
-          version: '~> v2'
-          args: release --clean
+          # An exact version, not the '~> v2' range this used to carry. That
+          # range was the one genuinely unpinned input on the publishing path:
+          # it resolves at run time, and 2.18.2 had been published less than a
+          # day before it built v1.1.0-h3. A tool that decides archive names and
+          # artifact layout is a build input like the Go toolchain, and the
+          # documented verification commands hardcode the names it produces.
+          version: '2.18.2'
+          # A tag publishes; a manual run rehearses. --snapshot implies
+          # --skip=announce,publish,validate and, deliberately, does NOT skip
+          # signing, so a dispatch exercises the whole keyless ceremony - OIDC,
+          # Fulcio, Rekor, and the bundle write - and uploads nothing. Its
+          # certificate names a branch ref, so it cannot satisfy the tag-shaped
+          # identity pattern consumers verify against, which is correct: a
+          # rehearsal must not produce something that passes as a release.
+          # One line on purpose: a folded scalar keeps the newlines of any
+          # continuation line indented deeper than the first, which would put
+          # literal newlines inside the ${{ }} expression.
+          args: ${{ github.event_name == 'workflow_dispatch' && 'release --snapshot --clean' || 'release --clean' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Your GoReleaser Pro key, if you are using the 'goreleaser-pro' distribution

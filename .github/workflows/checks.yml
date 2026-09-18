@@ -88,3 +88,38 @@ jobs:
       # a vulnerability disclosed upstream should not read as "the tests broke".
       - name: Verify supply chain
         run: make verify-supply-chain
+
+  # The release config used to get its first and only exercise from the tag that
+  # published it. v1.1.0-h3 is what that costs: a flag cosign had started
+  # ignoring, discovered after six archives and six SBOMs were built, on a tag
+  # number that cannot be reused because proxy.golang.org and sum.golang.org
+  # record a pushed tag within minutes and neither can be unrecorded. Both
+  # checks here are offline-fast and run on every commit instead.
+  release-config:
+    name: Release config
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # Same SHA and same version as the release workflow installs, because the
+      # question this job answers is "would the release job accept this config",
+      # and a different cosign answers a different question.
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.0.6
+      # Catches the YAML-level mistakes: a mistyped key, a wrong nesting, a
+      # setting goreleaser does not have. `signs` has no `bundle` field, for
+      # instance, and guessing one would otherwise surface at tag time.
+      - name: Check goreleaser config
+        uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
+        with:
+          distribution: goreleaser
+          version: '2.18.2'
+          args: check
+      # And the part goreleaser cannot check, because the flags are opaque
+      # strings to it: whether cosign still accepts them. Demonstrated against
+      # the defect it targets - it passes on the current config and fails on
+      # v1.1.0-h3's, naming --output-signature and --output-certificate.
+      - name: Check signing flags against cosign
+        run: scripts/verify-sign-flags.sh

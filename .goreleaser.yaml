@@ -80,31 +80,59 @@ sboms:
 #
 # Only the checksum file is signed, which covers everything: checksums.txt holds
 # the SHA-256 of every archive, so one signature plus one sha256sum verifies any
-# of them, and the release page carries one .sig/.pem pair instead of a pair per
+# of them, and the release page carries one signature file instead of one per
 # archive.
 #
+# One .sigstore.json bundle, not the .sig/.pem pair this block produced until
+# v1.1.0-h3 failed on it. cosign 3.0.6 - the version pinned in goreleaser.yml -
+# defaults to --new-bundle-format, which packs signature, certificate and
+# inclusion proof into one file, and then *ignores* --output-signature and
+# --output-certificate rather than refusing them. cosign was consequently left
+# signing into an empty --bundle path and died with "create bundle file: open :
+# no such file or directory", after all six archives and six SBOMs had been
+# built. The deprecated pair can still be revived with
+# `--use-signing-config=false --new-bundle-format=false`; that was rejected
+# because it is the format scheduled for removal, and because the bundle carries
+# the transparency-log inclusion proof and timestamp that the .sig/.pem pair
+# made the consumer fetch separately.
+#
+# goreleaser has no `bundle` setting. `signature` is simply the file the signer
+# is expected to write, and goreleaser uploads whatever it names. `certificate`
+# is deliberately absent: cosign writes no separate certificate file any more,
+# and a `certificate` pointing at a file nothing creates registers a release
+# asset that does not exist - which goreleaser 2.18.2 only warns about here and
+# then fails on much later, during upload, with the release already created.
+#
 #   cosign verify-blob \
-#     --certificate mcp-proxy_<version>_checksums.txt.pem \
-#     --signature   mcp-proxy_<version>_checksums.txt.sig \
-#     --certificate-identity-regexp '^https://github.com/zerg-su/mcp-proxy/' \
+#     --bundle mcp-proxy_<version>_checksums.txt.sigstore.json \
+#     --certificate-identity-regexp '^https://github\.com/zerg-su/mcp-proxy/\.github/workflows/goreleaser\.yml@refs/tags/v.+-h[0-9]+$' \
 #     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
 #     mcp-proxy_<version>_checksums.txt
 #
-# The two identity flags are not decoration. Without them cosign accepts a valid
-# signature from any identity in the transparency log, which is every GitHub
-# workflow that has ever signed anything.
+# The identity flags are mandatory, not advisory: cosign exits 1 with
+# "--certificate-identity or --certificate-identity-regexp is required for
+# verification in keyless mode" if they are absent, so nobody can skip them by
+# accident. What *is* silent is a loose pattern. cosign matches the regexp as a
+# substring, so an unanchored '^https://github.com/zerg-su/mcp-proxy/' would
+# also accept a certificate minted by any other workflow in this repository that
+# holds id-token: write, on any ref. Both ends are anchored, and the tag shape
+# is part of the pattern, so only a tag-triggered run of this workflow verifies.
 signs:
   - id: checksum
     cmd: cosign
-    signature: '${artifact}.sig'
-    certificate: '${artifact}.pem'
+    # The file cosign is told to write, and the name goreleaser uploads it
+    # under. `.sigstore.json` is the Sigstore bundle convention and what
+    # `cosign verify-blob --bundle` expects to be handed.
+    signature: '${artifact}.sigstore.json'
     args:
       - sign-blob
-      - '--output-signature=${signature}'
-      - '--output-certificate=${certificate}'
+      - '--bundle=${signature}'
       - '${artifact}'
       - '--yes'
     artifacts: checksum
+    # Without this, goreleaser swallows cosign's stderr unless the entire run is
+    # --verbose. cosign's deprecation warnings were the only notice before the
+    # failure above, and they are what made it diagnosable from the run log.
     output: true
 
 changelog:

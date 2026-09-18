@@ -39,26 +39,40 @@ go install github.com/tbxark/mcp-proxy@latest
 
 Releases of the `zerg-su` fork are tagged `v<upstream>-h<N>` and carry archives
 for linux, darwin and windows on amd64 and arm64, a checksum file, a CycloneDX
-SBOM per archive, and a Sigstore signature over the checksums. Download the
-archive for your platform from the releases page, then:
+SBOM per archive, and one Sigstore bundle signing the checksums —
+`mcp-proxy_<version>_checksums.txt.sigstore.json`. Download the archive for your
+platform from the releases page, then:
 
 ```bash
 sha256sum --check --ignore-missing mcp-proxy_<version>_checksums.txt
 ```
 
-The checksums themselves are signed, keyless — the certificate is bound to the
-workflow that built the release rather than to a key anyone holds. Both identity
-flags matter: without them `cosign` accepts a valid signature from any workflow
-on GitHub, which is not the question being asked.
+That is the check worth running first, and it covers every archive: the checksum
+file names the SHA-256 of all of them. The checksums themselves are signed,
+keyless — the certificate is bound to the workflow that built the release rather
+than to a key anyone holds, so there is no key to have been stolen.
 
 ```bash
 cosign verify-blob \
-  --certificate mcp-proxy_<version>_checksums.txt.pem \
-  --signature   mcp-proxy_<version>_checksums.txt.sig \
-  --certificate-identity-regexp '^https://github.com/zerg-su/mcp-proxy/' \
+  --bundle mcp-proxy_<version>_checksums.txt.sigstore.json \
+  --certificate-identity-regexp '^https://github\.com/zerg-su/mcp-proxy/\.github/workflows/goreleaser\.yml@refs/tags/v.+-h[0-9]+$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   mcp-proxy_<version>_checksums.txt
 ```
+
+Needs **cosign 3.x**, which reads this bundle format by default. On cosign
+2.4.x–2.x add `--new-bundle-format`; cosign older than 2.4.0 cannot verify it at
+all. Releases up to and including `v1.1.0-h2` are unsigned — the bundle starts at
+`v1.1.0-h4`.
+
+Both identity flags are mandatory: cosign refuses outright without them
+(`--certificate-identity or --certificate-identity-regexp is required for
+verification in keyless mode`), so they cannot be skipped by accident. The part
+that *is* easy to get wrong is the pattern, because cosign matches it as a
+substring — an unanchored `^https://github.com/zerg-su/mcp-proxy/` would also
+accept a certificate minted by any other workflow in this repository. The pattern
+above is anchored at both ends and includes the tag shape, so only a tag-triggered
+run of the release workflow satisfies it.
 
 **On macOS**, an archive downloaded through a browser is quarantined, and the
 binary inside it is not signed with an Apple Developer ID, so Gatekeeper refuses
